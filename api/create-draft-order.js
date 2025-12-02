@@ -31,6 +31,13 @@ module.exports = async (req, res) => {
     });
   }
   
+  // Log config (without exposing full token)
+  console.log('Config:', {
+    shop: SHOPIFY_SHOP,
+    tokenPrefix: SHOPIFY_ACCESS_TOKEN?.substring(0, 10) + '...',
+    apiVersion: API_VERSION
+  });
+  
   try {
     const { customer_id, items, customer_email } = req.body;
     
@@ -91,7 +98,11 @@ module.exports = async (req, res) => {
     }
     
     // Call Shopify API
-    const response = await fetch(`https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/draft_orders.json`, {
+    const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/draft_orders.json`;
+    console.log('Calling Shopify API:', apiUrl);
+    console.log('Draft order data:', JSON.stringify(draftOrderData, null, 2));
+    
+    const response = await fetch(apiUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -100,10 +111,21 @@ module.exports = async (req, res) => {
       body: JSON.stringify({ draft_order: draftOrderData })
     });
     
+    console.log('Shopify API response status:', response.status);
+    
     if (!response.ok) {
       const error = await response.text();
-      console.error('Shopify API error:', error);
-      return res.status(response.status).json({ error: 'Failed to create draft order', details: error });
+      console.error('Shopify API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: error
+      });
+      return res.status(response.status).json({ 
+        error: 'Failed to create draft order', 
+        details: error,
+        status: response.status,
+        shop: SHOPIFY_SHOP
+      });
     }
     
     const data = await response.json();
