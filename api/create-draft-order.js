@@ -9,6 +9,10 @@ const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP; // your-shop.myshopify.com
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN; // Admin API access token
 const API_VERSION = '2024-10'; // Shopify API version
 
+// Retry configuration
+const MAX_RETRIES = 3;
+const INITIAL_RETRY_DELAY = 1000; // 1 second
+
 module.exports = async (req, res) => {
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -97,43 +101,18 @@ module.exports = async (req, res) => {
       draftOrderData.email = customer_email;
     }
 
-    // Call Shopify API
+    // Call Shopify API with retry logic
     const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/draft_orders.json`;
     console.log('Calling Shopify API:', apiUrl);
     console.log('Draft order data:', JSON.stringify(draftOrderData, null, 2));
 
-    const response = await fetch(apiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-      },
-      body: JSON.stringify({ draft_order: draftOrderData })
-    });
-
-    console.log('Shopify API response status:', response.status);
-
-    if (!response.ok) {
-      const error = await response.text();
-      console.error('Shopify API error:', {
-        status: response.status,
-        statusText: response.statusText,
-        body: error
-      });
-      return res.status(response.status).json({
-        error: 'Failed to create draft order',
-        details: error,
-        status: response.status,
-        shop: SHOPIFY_SHOP
+    const draftOrder = await createDraftOrderWithRetry(apiUrl, draftOrderData);
+    
+    if (!draftOrder) {
+      return res.status(500).json({
+        error: 'Failed to create draft order after retries'
       });
     }
-
-    const data = await response.json();
-    const draftOrder = data.draft_order;
-
-    console.log('Draft order created:', draftOrder.id);
-
-    console.log('Draft order created:', draftOrder.id);
 
     // Return invoice URL directly
     // Do NOT complete the draft order via API, otherwise it converts to an Order 
@@ -151,6 +130,87 @@ module.exports = async (req, res) => {
   }
 };
 
+/**
+ * Create draft order with retry logic for rate limiting
+ */
+async function createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount = 0) {
+  try {
+    const response = await fetch(apiUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
+      },
+      body: JSON.stringify({ draft_order: draftOrderData })
+    });
+
+    console.log('Shopify API response status:', response.status);
+
+    // Handle rate limiting (429)
+    if (response.status === 429) {
+      if (retryCount < MAX_RETRIES) {
+        const retryAfter = response.headers.get('Retry-After');
+        const delay = retryAfter ? parseInt(retryAfter) * 1000 : INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+        
+        console.log(`Rate limited. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        
+        await sleep(delay);
+        return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
+      } else {
+        console.error('Max retries reached for rate limiting');
+        throw new Error('Shopify API rate limit exceeded. Please try again later.');
+      }
+    }
+
+    // Handle other errors
+    if (!response.ok) {
+      const error = await response.text();
+      console.error('Shopify API error:', {
+        status: response.status,
+        statusText: response.statusText,
+        body: error
+      });
+      
+      // Retry on server errors (5xx)
+      if (response.status >= 500 && retryCount < MAX_RETRIES) {
+        const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+        console.log(`Server error. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+        
+        await sleep(delay);
+        return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
+      }
+      
+      throw new Error(`Shopify API error: ${response.status} - ${error}`);
+    }
+
+    const data = await response.json();
+    console.log('Draft order created:', data.draft_order.id);
+    
+    return data.draft_order;
+    
+  } catch (error) {
+    if (retryCount < MAX_RETRIES && error.message.includes('fetch')) {
+      const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+      console.log(`Network error. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+      
+      await sleep(delay);
+      return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
+    }
+    
+    throw error;
+  }
+}
+
+/**
+ * Sleep utility for retry delays
+ */
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+/**
+ * Calculate discount amount
+ */
 function calculateDiscountAmount(price, quantity, percent) {
   const totalPrice = price * quantity;
   const discountAmount = (totalPrice * percent / 100).toFixed(2);
