@@ -10,12 +10,12 @@ const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const API_VERSION = '2024-10';
 
-// Cấu hình đổi điểm
+// Cấu hình đổi điểm (tỷ lệ 1:10 - 1000 điểm = 10.000 VND)
 const EXCHANGE_RATES = {
-    50000: 5000,   // 50.000đ = 5000 điểm
-    100000: 10000, // 100.000đ = 10000 điểm
-    200000: 18000, // 200.000đ = 18000 điểm (bonus)
-    500000: 40000  // 500.000đ = 40000 điểm (bonus)
+    50000: 5000,   // 50.000 VND = 5.000 điểm
+    100000: 10000, // 100.000 VND = 10.000 điểm
+    200000: 20000, // 200.000 VND = 20.000 điểm
+    500000: 50000  // 500.000 VND = 50.000 điểm
 };
 
 const MIN_POINTS_REQUIRED = 5000;
