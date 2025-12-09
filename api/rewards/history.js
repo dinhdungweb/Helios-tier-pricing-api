@@ -38,22 +38,38 @@ module.exports = async (req, res) => {
         }
 
         const numericId = customer_id.toString().replace(/\D/g, '');
+        
+        if (!numericId) {
+            return res.status(400).json({ error: 'Invalid customer_id format' });
+        }
+
+        console.log('Fetching rewards history for customer:', numericId);
 
         // Lấy tất cả metafields của customer trong namespace rewards
-        const response = await fetch(
-            `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/customers/${numericId}/metafields.json?namespace=rewards`,
-            {
-                headers: {
-                    'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-                }
+        const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/customers/${numericId}/metafields.json?namespace=rewards`;
+        console.log('API URL:', apiUrl);
+        
+        const response = await fetch(apiUrl, {
+            headers: {
+                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
             }
-        );
+        });
+
+        console.log('Response status:', response.status);
 
         if (!response.ok) {
+            const errorText = await response.text();
+            console.error('Shopify API error:', errorText);
+            
             if (response.status === 404) {
                 return res.status(404).json({ error: 'Customer not found' });
             }
-            throw new Error(`Shopify API error: ${response.status}`);
+            
+            return res.status(response.status).json({
+                error: 'Shopify API error',
+                status: response.status,
+                details: errorText
+            });
         }
 
         const data = await response.json();
