@@ -10,7 +10,9 @@
     "env": "vercel env ls",
     "test": "curl -X POST http://localhost:3000/api/create-draft-order -H 'Content-Type: application/json' -d @api/test-request.json"
   },
-  "dependencies": {},
+  "dependencies": {
+    "dotenv": "^17.2.3"
+  },
   "devDependencies": {
     "vercel": "^33.0.0"
   }
