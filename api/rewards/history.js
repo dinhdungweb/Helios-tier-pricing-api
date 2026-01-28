@@ -90,11 +90,20 @@ module.exports = async (req, res) => {
                 } else {
                     history = historyMetafield.value;
                 }
+
+                // Ensure history is an array
+                if (!Array.isArray(history)) {
+                    console.warn('History is not an array:', history);
+                    history = [];
+                }
             } catch (e) {
                 console.error('Failed to parse history:', e);
                 console.log('Raw value:', historyMetafield.value);
                 history = [];
             }
+        } else {
+            // New account or no history yet
+            history = [];
         }
 
         return res.status(200).json({
