@@ -73,10 +73,10 @@ module.exports = async (req, res) => {
             });
         }
 
-        // 2. Tạo mã giảm giá
-        const discountCode = await createDiscountCode(discount_value, customer.email);
-        if (!discountCode) {
-            return res.status(500).json({ error: 'Failed to create discount code' });
+        // 2. Tạo mã gift card
+        const giftCardCode = await createGiftCard(discount_value, customer_id); // Pass customer_id for GC
+        if (!giftCardCode) {
+            return res.status(500).json({ error: 'Failed to create gift card' });
         }
 
         // 3. Trừ điểm
@@ -86,17 +86,17 @@ module.exports = async (req, res) => {
         // 4. Lưu lịch sử
         await addRewardHistory(customer_id, {
             date: new Date().toISOString(),
-            action: 'Đổi điểm',
+            action: 'Đổi điểm lấy Gift Card',
             points_used: pointsRequired,
-            discount_code: discountCode,
+            discount_code: giftCardCode,
             amount_vnd: discount_value
         });
 
-        console.log(`✅ Customer ${customer_id} exchanged ${pointsRequired} points for ${discountCode}`);
+        console.log(`✅ Customer ${customer_id} exchanged ${pointsRequired} points for Gift Card ${giftCardCode}`);
 
         return res.status(200).json({
             success: true,
-            discount_code: discountCode,
+            discount_code: giftCardCode,
             discount_value: discount_value,
             points_used: pointsRequired,
             remaining_points: newPoints
@@ -191,13 +191,16 @@ async function updateCustomerPoints(customerId, newPoints) {
 }
 
 /**
- * Tạo mã giảm giá
+ * Tạo Gift Card
  */
-async function createDiscountCode(amountVnd, customerEmail) {
-    const code = `RWD-${generateCode(8)}`;
+async function createGiftCard(amountVnd, customerId) {
+    // Gift Card code (optional: let Shopify generate or custom)
+    // Shopify auto-generates if code is not provided, or we can provide a custom one.
+    // Let's generate a custom one to have a prefix like 'RWD-'
+    const code = `RWD-${generateCode(12)}`; // 12 chars for better security
 
     const response = await fetch(
-        `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/price_rules.json`,
+        `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/gift_cards.json`,
         {
             method: 'POST',
             headers: {
@@ -205,19 +208,11 @@ async function createDiscountCode(amountVnd, customerEmail) {
                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
             },
             body: JSON.stringify({
-                price_rule: {
-                    title: code,
-                    target_type: 'line_item',
-                    target_selection: 'all',
-                    allocation_method: 'across',
-                    value_type: 'fixed_amount',
-                    value: `-${amountVnd}`,
-                    customer_selection: 'prerequisite',
-                    prerequisite_customer_ids: [],
-                    once_per_customer: true,
-                    usage_limit: 1,
-                    starts_at: new Date().toISOString(),
-                    ends_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString() // 90 ngày
+                gift_card: {
+                    initial_value: amountVnd.toString(),
+                    code: code,
+                    customer_id: customerId,
+                    note: 'Đổi điểm thưởng Helios Rewards'
                 }
             })
         }
@@ -225,35 +220,19 @@ async function createDiscountCode(amountVnd, customerEmail) {
 
     if (!response.ok) {
         const error = await response.text();
-        console.error('Failed to create price rule:', error);
-        return null;
-    }
+        console.error('Failed to create gift card:', error);
 
-    const priceRuleData = await response.json();
-    const priceRuleId = priceRuleData.price_rule.id;
-
-    // Tạo discount code từ price rule
-    const codeResponse = await fetch(
-        `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/price_rules/${priceRuleId}/discount_codes.json`,
-        {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
-            },
-            body: JSON.stringify({
-                discount_code: { code }
-            })
+        // Check for permission error specifically
+        if (response.status === 403) {
+            console.error('PERMISSION ERROR: App is missing write_gift_cards scope.');
+            throw new Error('Missing write_gift_cards permission');
         }
-    );
 
-    if (!codeResponse.ok) {
-        const error = await codeResponse.text();
-        console.error('Failed to create discount code:', error);
         return null;
     }
 
-    return code;
+    const data = await response.json();
+    return data.gift_card.code; // Return the actual code (Shopify might normalize it)
 }
 
 /**
