@@ -254,10 +254,13 @@ async function addRewardHistory(customerId, historyEntry) {
     let history = [];
     if (getResponse.ok) {
         const data = await getResponse.json();
-        const historyMetafield = data.metafields?.find(m => m.key === 'history');
         if (historyMetafield) {
             try {
-                history = JSON.parse(historyMetafield.value);
+                if (typeof historyMetafield.value === 'string') {
+                    history = JSON.parse(historyMetafield.value);
+                } else {
+                    history = historyMetafield.value;
+                }
             } catch (e) {
                 history = [];
             }

@@ -38,7 +38,7 @@ module.exports = async (req, res) => {
         }
 
         const numericId = customer_id.toString().replace(/\D/g, '');
-        
+
         if (!numericId) {
             return res.status(400).json({ error: 'Invalid customer_id format' });
         }
@@ -48,7 +48,7 @@ module.exports = async (req, res) => {
         // Lấy tất cả metafields của customer trong namespace rewards
         const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/customers/${numericId}/metafields.json?namespace=rewards`;
         console.log('API URL:', apiUrl);
-        
+
         const response = await fetch(apiUrl, {
             headers: {
                 'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
@@ -60,11 +60,11 @@ module.exports = async (req, res) => {
         if (!response.ok) {
             const errorText = await response.text();
             console.error('Shopify API error:', errorText);
-            
+
             if (response.status === 404) {
                 return res.status(404).json({ error: 'Customer not found' });
             }
-            
+
             return res.status(response.status).json({
                 error: 'Shopify API error',
                 status: response.status,
@@ -84,9 +84,15 @@ module.exports = async (req, res) => {
         let history = [];
         if (historyMetafield) {
             try {
-                history = JSON.parse(historyMetafield.value);
+                // REST API usually returns JSON string, but sometimes it might be auto-parsed depending on client
+                if (typeof historyMetafield.value === 'string') {
+                    history = JSON.parse(historyMetafield.value);
+                } else {
+                    history = historyMetafield.value;
+                }
             } catch (e) {
                 console.error('Failed to parse history:', e);
+                console.log('Raw value:', historyMetafield.value);
                 history = [];
             }
         }
