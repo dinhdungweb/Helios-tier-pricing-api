@@ -10,15 +10,15 @@ const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const API_VERSION = '2024-10';
 
-// Cấu hình đổi điểm (tỷ lệ 1:10 - 1000 điểm = 10.000 VND)
+// Cấu hình đổi điểm (tỷ lệ 1:1 - 1000 điểm = 1000 VND)
 const EXCHANGE_RATES = {
-    50000: 5000,   // 50.000 VND = 5.000 điểm
-    100000: 10000, // 100.000 VND = 10.000 điểm
-    200000: 20000, // 200.000 VND = 20.000 điểm
-    500000: 50000  // 500.000 VND = 50.000 điểm
+    50000: 50000,   // 50.000 VND = 50.000 điểm
+    100000: 100000, // 100.000 VND = 100.000 điểm
+    200000: 200000, // 200.000 VND = 200.000 điểm
+    500000: 500000  // 500.000 VND = 500.000 điểm
 };
 
-const MIN_POINTS_REQUIRED = 5000;
+const MIN_POINTS_REQUIRED = 50000;
 
 module.exports = async (req, res) => {
     // CORS headers
