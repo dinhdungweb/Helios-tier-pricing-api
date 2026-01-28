@@ -85,8 +85,6 @@ module.exports = async (req, res) => {
         let history = [];
         if (historyMetafield) {
             try {
-                console.log('Found history metafield value:', historyMetafield.value);
-
                 // REST API usually returns JSON string, but sometimes it might be auto-parsed depending on client
                 if (typeof historyMetafield.value === 'string') {
                     history = JSON.parse(historyMetafield.value);
@@ -99,10 +97,8 @@ module.exports = async (req, res) => {
                     console.warn('History is not an array:', history);
                     history = [];
                 }
-                console.log('Parsed history success. Length:', history.length);
             } catch (e) {
                 console.error('Failed to parse history:', e);
-                console.log('Raw value:', historyMetafield.value);
                 history = [];
             }
         } else {
