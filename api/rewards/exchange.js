@@ -56,10 +56,10 @@ module.exports = async (req, res) => {
         }
 
         // Kiểm tra thời hạn chương trình
-        const DEADLINE = new Date('2026-03-04T00:00:00+07:00'); // Hết ngày 03/03/2026
+        const DEADLINE = new Date('2026-03-01T00:00:00+07:00'); // Hết ngày 28/02/2026
         if (new Date() > DEADLINE) {
             return res.status(400).json({
-                error: 'Chương trình đổi điểm đã kết thúc vào ngày 03/03/2026'
+                error: 'Chương trình đổi điểm đã kết thúc vào ngày 28/02/2026'
             });
         }
 
@@ -98,7 +98,7 @@ module.exports = async (req, res) => {
             points_used: pointsRequired,
             discount_code: giftCardCode,
             amount_vnd: discount_value,
-            expires_on: '2026-03-03'
+            expires_on: '2026-02-28'
         });
 
         console.log(`✅ Customer ${customer_id} exchanged ${pointsRequired} points for Gift Card ${giftCardCode}`);
@@ -108,9 +108,8 @@ module.exports = async (req, res) => {
             discount_code: giftCardCode,
             discount_value: discount_value,
             points_used: pointsRequired,
-            points_used: pointsRequired,
             remaining_points: newPoints,
-            expires_on: '03/03/2026'
+            expires_on: '28/02/2026'
         });
 
     } catch (error) {
@@ -224,7 +223,7 @@ async function createGiftCard(amountVnd, customerId) {
                     code: code,
                     customer_id: customerId,
                     note: 'Đổi điểm thưởng Helios Rewards',
-                    expires_on: '2026-03-03'
+                    expires_on: '2026-02-28'
                 }
             })
         }
