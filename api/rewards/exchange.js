@@ -97,7 +97,8 @@ module.exports = async (req, res) => {
             action: 'Đổi điểm lấy Gift Card',
             points_used: pointsRequired,
             discount_code: giftCardCode,
-            amount_vnd: discount_value
+            amount_vnd: discount_value,
+            expires_on: '2026-03-03'
         });
 
         console.log(`✅ Customer ${customer_id} exchanged ${pointsRequired} points for Gift Card ${giftCardCode}`);
@@ -107,7 +108,9 @@ module.exports = async (req, res) => {
             discount_code: giftCardCode,
             discount_value: discount_value,
             points_used: pointsRequired,
-            remaining_points: newPoints
+            points_used: pointsRequired,
+            remaining_points: newPoints,
+            expires_on: '03/03/2026'
         });
 
     } catch (error) {
