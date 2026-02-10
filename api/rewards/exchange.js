@@ -55,6 +55,14 @@ module.exports = async (req, res) => {
             });
         }
 
+        // Kiểm tra thời hạn chương trình
+        const DEADLINE = new Date('2026-03-04T00:00:00+07:00'); // Hết ngày 03/03/2026
+        if (new Date() > DEADLINE) {
+            return res.status(400).json({
+                error: 'Chương trình đổi điểm đã kết thúc vào ngày 03/03/2026'
+            });
+        }
+
         const pointsRequired = EXCHANGE_RATES[discount_value];
 
         // 1. Lấy thông tin customer và điểm hiện tại
