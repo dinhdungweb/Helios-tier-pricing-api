@@ -212,7 +212,8 @@ async function createGiftCard(amountVnd, customerId) {
                     initial_value: amountVnd.toString(),
                     code: code,
                     customer_id: customerId,
-                    note: 'Đổi điểm thưởng Helios Rewards'
+                    note: 'Đổi điểm thưởng Helios Rewards',
+                    expires_on: '2026-03-03'
                 }
             })
         }
