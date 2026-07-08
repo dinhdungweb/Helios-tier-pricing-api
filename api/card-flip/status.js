@@ -17,7 +17,7 @@ module.exports = async (req, res) => {
 
   try {
     const { customer_id, campaign_id } = req.query;
-    const state = await getGameState(customer_id, campaign_id);
+    const state = await getGameState(customer_id, campaign_id, req.query);
 
     return res.status(200).json({
       success: true,
