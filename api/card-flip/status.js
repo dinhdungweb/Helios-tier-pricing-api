@@ -18,6 +18,7 @@ module.exports = async (req, res) => {
   try {
     const { customer_id, campaign_id } = req.query;
     const state = await getGameState(customer_id, campaign_id, req.query);
+    const limit = getLimit(req.query.limit, 100);
 
     return res.status(200).json({
       success: true,
@@ -27,9 +28,17 @@ module.exports = async (req, res) => {
       allowed_turns: state.allowedTurns,
       used_turns: state.usedTurns,
       remaining_turns: state.remainingTurns,
-      history: state.campaignHistory.slice(0, 20)
+      history: state.campaignHistory.slice(0, limit)
     });
   } catch (error) {
     return handleError(res, error);
   }
 };
+
+function getLimit(value, fallback) {
+  const number = Number.parseInt(value, 10);
+  if (!Number.isFinite(number) || number <= 0) {
+    return fallback;
+  }
+  return Math.min(number, 200);
+}
