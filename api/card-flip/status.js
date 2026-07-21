@@ -28,6 +28,7 @@ module.exports = async (req, res) => {
       allowed_turns: state.allowedTurns,
       used_turns: state.usedTurns,
       remaining_turns: state.remainingTurns,
+      accumulated_order_amount: state.accumulatedOrderAmount,
       history: state.campaignHistory.slice(0, limit)
     });
   } catch (error) {
