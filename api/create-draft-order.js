@@ -82,29 +82,17 @@ module.exports = async (req, res) => {
       const price = Number(item.price);
       const quantity = Number(item.quantity);
       const discountPercent = Number(item.discount_percent || 0);
+      const normalizedDiscountPercent = normalizeDiscountPercent(discountPercent);
 
-      if (discountPercent > 0) {
+      if (normalizedDiscountPercent > 0) {
         const isGift = Boolean(item.is_gift);
-        const isFullDiscount = discountPercent >= 100;
 
-        if (isFullDiscount) {
-          // Shopify rejects percentage discounts at exactly 100%.
-          // A fixed discount equal to the current unit price produces the
-          // intended zero-value line while keeping the product variant.
-          lineItem.applied_discount = {
-            description: isGift ? 'Quà tặng miễn phí' : 'Tier Discount 100%',
-            value_type: 'fixed_amount',
-            value: formatMoney(price),
-            amount: formatMoney(price * quantity)
-          };
-        } else {
-          lineItem.applied_discount = {
-            description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${discountPercent}%`,
-            value_type: 'percentage',
-            value: discountPercent.toString(),
-            amount: calculateDiscountAmount(price, quantity, discountPercent)
-          };
-        }
+        lineItem.applied_discount = {
+          description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${normalizedDiscountPercent}%`,
+          value_type: 'percentage',
+          value: normalizedDiscountPercent.toString(),
+          amount: calculateDiscountAmount(price, quantity, normalizedDiscountPercent)
+        };
       }
 
       return lineItem;
@@ -235,13 +223,18 @@ function sleep(ms) {
  */
 function calculateDiscountAmount(price, quantity, percent) {
   const totalPrice = price * quantity;
-  const discountAmount = (totalPrice * percent / 100).toFixed(2);
-  return discountAmount;
+  const rawDiscountAmount = totalPrice * percent / 100;
+
+  // Shopify's REST Draft Order formula floors fractional-currency amounts
+  // to two decimal places rather than rounding them up.
+  return (Math.floor((rawDiscountAmount + Number.EPSILON) * 100) / 100).toFixed(2);
 }
 
 /**
- * Format a monetary value for the Shopify REST payload.
+ * Shopify accepts percentage discounts from 0 to 100 with at most
+ * two digits after the decimal point.
  */
-function formatMoney(value) {
-  return Number(value).toFixed(2);
+function normalizeDiscountPercent(percent) {
+  const boundedPercent = Math.min(100, Math.max(0, Number(percent)));
+  return Math.round((boundedPercent + Number.EPSILON) * 100) / 100;
 }
