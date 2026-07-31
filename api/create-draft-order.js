@@ -8,13 +8,9 @@ const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const DEFAULT_CURRENCY = (process.env.SHOPIFY_CURRENCY || 'VND').toUpperCase();
 const API_VERSION = '2026-07';
 
-// Shopify storefront prices use currency-specific integer units. Most
-// currencies use 100 units per major unit, while zero-decimal currencies such
-// as VND use the displayed amount directly.
-const ZERO_DECIMAL_CURRENCIES = new Set([
-  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF',
-  'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'
-]);
+// Shopify Ajax/Liquid money integers always append two decimal digits, even
+// for currencies without subunits (for example VND, JPY, and KRW).
+const STOREFRONT_PRICE_SCALE = 100;
 
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000;
@@ -313,11 +309,12 @@ function formatMoney(value) {
 function getUnitPrice(item, currency) {
   if (item.price_minor !== undefined && item.price_minor !== null) {
     const rawPrice = Number(item.price_minor);
-    return ZERO_DECIMAL_CURRENCIES.has(currency) ? rawPrice : rawPrice / 100;
+    return rawPrice / STOREFRONT_PRICE_SCALE;
   }
 
+  // Legacy clients send `price` in the displayed major currency unit.
   const legacyPrice = Number(item.price);
-  return ZERO_DECIMAL_CURRENCIES.has(currency) ? legacyPrice * 100 : legacyPrice;
+  return legacyPrice;
 }
 
 function normalizeCurrency(value) {
