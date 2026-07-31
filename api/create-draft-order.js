@@ -7,7 +7,17 @@
 
 const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP; // your-shop.myshopify.com
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN; // Admin API access token
+const SHOPIFY_CURRENCY = (process.env.SHOPIFY_CURRENCY || 'VND').toUpperCase();
 const API_VERSION = '2024-10'; // Shopify API version
+
+// The storefront sends Shopify theme prices after dividing the integer value
+// by 100. Zero-decimal currencies such as VND need that scale restored before
+// a fixed_amount is sent to the Admin API.
+const ZERO_DECIMAL_CURRENCIES = new Set([
+  'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF',
+  'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'
+]);
+const FIXED_AMOUNT_SCALE = ZERO_DECIMAL_CURRENCIES.has(SHOPIFY_CURRENCY) ? 100 : 1;
 
 // Retry configuration
 const MAX_RETRIES = 3;
@@ -39,7 +49,9 @@ module.exports = async (req, res) => {
   console.log('Config:', {
     shop: SHOPIFY_SHOP,
     tokenPrefix: SHOPIFY_ACCESS_TOKEN?.substring(0, 10) + '...',
-    apiVersion: API_VERSION
+    apiVersion: API_VERSION,
+    currency: SHOPIFY_CURRENCY,
+    fixedAmountScale: FIXED_AMOUNT_SCALE
   });
 
   try {
@@ -95,8 +107,8 @@ module.exports = async (req, res) => {
         lineItem.applied_discount = {
           description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${displayDiscountPercent}%`,
           value_type: 'fixed_amount',
-          value: formatMoney(unitDiscountAmount),
-          amount: formatMoney(unitDiscountAmount * quantity)
+          value: formatMoney(toShopifyFixedAmount(unitDiscountAmount)),
+          amount: formatMoney(toShopifyFixedAmount(unitDiscountAmount * quantity))
         };
       }
 
@@ -237,6 +249,13 @@ function calculateUnitDiscountAmount(price, percent) {
  */
 function formatMoney(value) {
   return Number(value).toFixed(2);
+}
+
+/**
+ * Restore the currency scale expected by Shopify fixed-amount discounts.
+ */
+function toShopifyFixedAmount(value) {
+  return Number(value) * FIXED_AMOUNT_SCALE;
 }
 
 /**
