@@ -82,16 +82,21 @@ module.exports = async (req, res) => {
       const price = Number(item.price);
       const quantity = Number(item.quantity);
       const discountPercent = Number(item.discount_percent || 0);
-      const normalizedDiscountPercent = normalizeDiscountPercent(discountPercent);
+      const displayDiscountPercent = normalizeDiscountPercent(discountPercent);
+      const unitDiscountAmount = calculateUnitDiscountAmount(price, discountPercent);
 
-      if (normalizedDiscountPercent > 0) {
+      if (unitDiscountAmount > 0) {
         const isGift = Boolean(item.is_gift);
 
+        // Effective tier percentages can contain many decimal places when a
+        // store sale and tier sale are stacked. Shopify restricts percentage
+        // precision and can round the checkout total away from the displayed
+        // tier price. A per-unit fixed amount preserves the exact discount.
         lineItem.applied_discount = {
-          description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${normalizedDiscountPercent}%`,
-          value_type: 'percentage',
-          value: normalizedDiscountPercent.toString(),
-          amount: calculateDiscountAmount(price, quantity, normalizedDiscountPercent)
+          description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${displayDiscountPercent}%`,
+          value_type: 'fixed_amount',
+          value: formatMoney(unitDiscountAmount),
+          amount: formatMoney(unitDiscountAmount * quantity)
         };
       }
 
@@ -219,15 +224,19 @@ function sleep(ms) {
 }
 
 /**
- * Calculate discount amount
+ * Calculate the exact discount per unit while preventing a discount from
+ * exceeding the current unit price.
  */
-function calculateDiscountAmount(price, quantity, percent) {
-  const totalPrice = price * quantity;
-  const rawDiscountAmount = totalPrice * percent / 100;
+function calculateUnitDiscountAmount(price, percent) {
+  const rawDiscountAmount = Number(price) * Number(percent) / 100;
+  return Math.min(Number(price), Math.max(0, rawDiscountAmount));
+}
 
-  // Shopify's REST Draft Order formula floors fractional-currency amounts
-  // to two decimal places rather than rounding them up.
-  return (Math.floor((rawDiscountAmount + Number.EPSILON) * 100) / 100).toFixed(2);
+/**
+ * Format a monetary value for Shopify's REST Draft Order payload.
+ */
+function formatMoney(value) {
+  return Number(value).toFixed(2);
 }
 
 /**
