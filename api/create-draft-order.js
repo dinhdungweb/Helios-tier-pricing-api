@@ -1,30 +1,25 @@
 /**
  * Shopify Draft Order API
- * Create draft order with line item discounts for tier pricing
- * 
- * Deploy to: Vercel, Netlify, or any serverless platform
+ * Create a draft order with exact, currency-aware line item discounts.
  */
 
-const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP; // your-shop.myshopify.com
-const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN; // Admin API access token
-const SHOPIFY_CURRENCY = (process.env.SHOPIFY_CURRENCY || 'VND').toUpperCase();
-const API_VERSION = '2024-10'; // Shopify API version
+const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
+const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
+const DEFAULT_CURRENCY = (process.env.SHOPIFY_CURRENCY || 'VND').toUpperCase();
+const API_VERSION = '2026-07';
 
-// The storefront sends Shopify theme prices after dividing the integer value
-// by 100. Zero-decimal currencies such as VND need that scale restored before
-// a fixed_amount is sent to the Admin API.
+// Shopify storefront prices use currency-specific integer units. Most
+// currencies use 100 units per major unit, while zero-decimal currencies such
+// as VND use the displayed amount directly.
 const ZERO_DECIMAL_CURRENCIES = new Set([
   'BIF', 'CLP', 'DJF', 'GNF', 'ISK', 'JPY', 'KMF',
   'KRW', 'PYG', 'RWF', 'UGX', 'UYI', 'VND', 'VUV', 'XAF', 'XOF', 'XPF'
 ]);
-const FIXED_AMOUNT_SCALE = ZERO_DECIMAL_CURRENCIES.has(SHOPIFY_CURRENCY) ? 100 : 1;
 
-// Retry configuration
 const MAX_RETRIES = 3;
-const INITIAL_RETRY_DELAY = 1000; // 1 second
+const INITIAL_RETRY_DELAY = 1000;
 
 module.exports = async (req, res) => {
-  // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -37,7 +32,6 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  // Validate environment variables
   if (!SHOPIFY_SHOP || !SHOPIFY_ACCESS_TOKEN) {
     return res.status(500).json({
       error: 'Server configuration error',
@@ -45,122 +39,154 @@ module.exports = async (req, res) => {
     });
   }
 
-  // Log config (without exposing full token)
   console.log('Config:', {
     shop: SHOPIFY_SHOP,
     tokenPrefix: SHOPIFY_ACCESS_TOKEN?.substring(0, 10) + '...',
     apiVersion: API_VERSION,
-    currency: SHOPIFY_CURRENCY,
-    fixedAmountScale: FIXED_AMOUNT_SCALE
+    defaultCurrency: DEFAULT_CURRENCY
   });
 
   try {
-    const { customer_id, items, customer_email } = req.body;
+    const { customer_id, customer_email, items } = req.body;
+    const currency = normalizeCurrency(req.body.currency || DEFAULT_CURRENCY);
 
-    if (!items || items.length === 0) {
+    if (!currency) {
+      return res.status(400).json({
+        error: 'A valid 3-letter currency code is required'
+      });
+    }
+
+    if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ error: 'No items provided' });
     }
 
-    // Validate items
     for (let i = 0; i < items.length; i++) {
       const item = items[i];
+      const quantity = Number(item.quantity);
+      const price = getUnitPrice(item, currency);
+      const discountPercent = Number(item.discount_percent || 0);
+
       if (!item.variant_id) {
         return res.status(400).json({ error: `Item ${i}: variant_id is required` });
       }
-      if (!item.quantity || item.quantity <= 0) {
-        return res.status(400).json({ error: `Item ${i}: quantity must be greater than 0` });
+      if (!Number.isInteger(quantity) || quantity <= 0) {
+        return res.status(400).json({
+          error: `Item ${i}: quantity must be a positive integer`
+        });
       }
-      const price = Number(item.price);
-      const discountPercent = Number(item.discount_percent || 0);
-
       if (!Number.isFinite(price) || price < 0) {
-        return res.status(400).json({ error: `Item ${i}: price must be a positive number` });
+        return res.status(400).json({
+          error: `Item ${i}: price_minor or price must be a positive number`
+        });
       }
       if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
-        return res.status(400).json({ error: `Item ${i}: discount_percent must be between 0 and 100` });
+        return res.status(400).json({
+          error: `Item ${i}: discount_percent must be between 0 and 100`
+        });
       }
     }
 
-    console.log('Creating draft order:', { customer_id, items });
+    console.log('Creating draft order:', { customer_id, currency, items });
 
-    // Build line items with discounts
     const lineItems = items.map(item => {
-      const lineItem = {
-        variant_id: item.variant_id,
-        quantity: item.quantity
-      };
-
-      // Add discount if applicable
-      const price = Number(item.price);
-      const quantity = Number(item.quantity);
+      const price = getUnitPrice(item, currency);
       const discountPercent = Number(item.discount_percent || 0);
       const displayDiscountPercent = normalizeDiscountPercent(discountPercent);
       const unitDiscountAmount = calculateUnitDiscountAmount(price, discountPercent);
+      const lineItem = {
+        variantId: toProductVariantGid(item.variant_id),
+        quantity: Number(item.quantity)
+      };
 
       if (unitDiscountAmount > 0) {
-        const isGift = Boolean(item.is_gift);
+        const discountTitle = item.is_gift
+          ? 'Quà tặng miễn phí'
+          : `Tier Discount ${displayDiscountPercent}%`;
+        const formattedDiscount = formatMoney(unitDiscountAmount);
 
-        // Effective tier percentages can contain many decimal places when a
-        // store sale and tier sale are stacked. Shopify restricts percentage
-        // precision and can round the checkout total away from the displayed
-        // tier price. A per-unit fixed amount preserves the exact discount.
-        lineItem.applied_discount = {
-          description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${displayDiscountPercent}%`,
-          value_type: 'fixed_amount',
-          value: formatMoney(toShopifyFixedAmount(unitDiscountAmount)),
-          amount: formatMoney(toShopifyFixedAmount(unitDiscountAmount * quantity))
+        // A per-unit fixed amount preserves the exact displayed tier price.
+        // amountWithCurrency prevents the amount from being interpreted in the
+        // store currency when the customer checks out in another currency.
+        lineItem.appliedDiscount = {
+          title: discountTitle,
+          description: discountTitle,
+          valueType: 'FIXED_AMOUNT',
+          value: Number(formattedDiscount),
+          amountWithCurrency: {
+            amount: formattedDiscount,
+            currencyCode: currency
+          }
         };
       }
 
       return lineItem;
     });
 
-    // Create draft order payload
-    const draftOrderData = {
-      line_items: lineItems,
-      use_customer_default_address: true
+    const draftOrderInput = {
+      lineItems,
+      presentmentCurrencyCode: currency,
+      useCustomerDefaultAddress: true,
+      acceptAutomaticDiscounts: false
     };
 
-    // Add customer info
     if (customer_id) {
-      draftOrderData.customer = { id: customer_id };
+      draftOrderInput.purchasingEntity = {
+        customerId: toCustomerGid(customer_id)
+      };
     } else if (customer_email) {
-      draftOrderData.email = customer_email;
+      draftOrderInput.email = customer_email;
     }
 
-    // Call Shopify API with retry logic
-    const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/draft_orders.json`;
+    const apiUrl = `https://${SHOPIFY_SHOP}/admin/api/${API_VERSION}/graphql.json`;
     console.log('Calling Shopify API:', apiUrl);
-    console.log('Draft order data:', JSON.stringify(draftOrderData, null, 2));
+    console.log('Draft order data:', JSON.stringify(draftOrderInput, null, 2));
 
-    const draftOrder = await createDraftOrderWithRetry(apiUrl, draftOrderData);
+    const draftOrder = await createDraftOrderWithRetry(apiUrl, draftOrderInput);
 
-    if (!draftOrder) {
-      return res.status(500).json({
-        error: 'Failed to create draft order after retries'
-      });
-    }
-
-    // Return invoice URL directly
-    // Do NOT complete the draft order via API, otherwise it converts to an Order 
-    // and the invoice URL becomes invalid (marked as paid/completed).
     return res.status(200).json({
       success: true,
-      invoice_url: draftOrder.invoice_url,
-      draft_order_id: draftOrder.id,
-      total_price: draftOrder.total_price
+      invoice_url: draftOrder.invoiceUrl,
+      draft_order_id: draftOrder.legacyResourceId,
+      total_price: draftOrder.totalPriceSet.presentmentMoney.amount,
+      currency: draftOrder.presentmentCurrencyCode
     });
-
   } catch (error) {
     console.error('Error:', error);
-    return res.status(500).json({ error: 'Internal server error', message: error.message });
+    const statusCode = error.statusCode || 500;
+
+    return res.status(statusCode).json({
+      error: statusCode === 422
+        ? 'Shopify rejected the draft order'
+        : 'Internal server error',
+      message: error.message
+    });
   }
 };
 
-/**
- * Create draft order with retry logic for rate limiting
- */
-async function createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount = 0) {
+async function createDraftOrderWithRetry(apiUrl, draftOrderInput, retryCount = 0) {
+  const query = `
+    mutation DraftOrderCreate($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder {
+          id
+          legacyResourceId
+          invoiceUrl
+          presentmentCurrencyCode
+          totalPriceSet {
+            presentmentMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }
+  `;
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -168,100 +194,151 @@ async function createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount = 0)
         'Content-Type': 'application/json',
         'X-Shopify-Access-Token': SHOPIFY_ACCESS_TOKEN
       },
-      body: JSON.stringify({ draft_order: draftOrderData })
+      body: JSON.stringify({
+        query,
+        variables: { input: draftOrderInput }
+      })
     });
 
     console.log('Shopify API response status:', response.status);
 
-    // Handle rate limiting (429)
     if (response.status === 429) {
       if (retryCount < MAX_RETRIES) {
         const retryAfter = response.headers.get('Retry-After');
-        const delay = retryAfter ? parseInt(retryAfter) * 1000 : INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
+        const delay = retryAfter
+          ? parseInt(retryAfter, 10) * 1000
+          : INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
 
-        console.log(`Rate limited. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-
+        console.log(
+          `Rate limited. Retrying after ${delay}ms ` +
+          `(attempt ${retryCount + 1}/${MAX_RETRIES})`
+        );
         await sleep(delay);
-        return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
-      } else {
-        console.error('Max retries reached for rate limiting');
-        throw new Error('Shopify API rate limit exceeded. Please try again later.');
+        return createDraftOrderWithRetry(apiUrl, draftOrderInput, retryCount + 1);
       }
+
+      throw new Error('Shopify API rate limit exceeded. Please try again later.');
     }
 
-    // Handle other errors
     if (!response.ok) {
-      const error = await response.text();
+      const responseBody = await response.text();
       console.error('Shopify API error:', {
         status: response.status,
         statusText: response.statusText,
-        body: error
+        body: responseBody
       });
 
-      // Retry on server errors (5xx)
       if (response.status >= 500 && retryCount < MAX_RETRIES) {
         const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-        console.log(`Server error. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-
+        console.log(
+          `Server error. Retrying after ${delay}ms ` +
+          `(attempt ${retryCount + 1}/${MAX_RETRIES})`
+        );
         await sleep(delay);
-        return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
+        return createDraftOrderWithRetry(apiUrl, draftOrderInput, retryCount + 1);
       }
 
-      throw new Error(`Shopify API error: ${response.status} - ${error}`);
+      const shopifyError = new Error(
+        `Shopify API error: ${response.status} - ${responseBody}`
+      );
+      shopifyError.statusCode =
+        response.status >= 400 && response.status < 500 ? 422 : 500;
+      throw shopifyError;
     }
 
     const data = await response.json();
-    console.log('Draft order created:', data.draft_order.id);
+    if (Array.isArray(data.errors) && data.errors.length > 0) {
+      const shopifyError = new Error(
+        data.errors.map(error => error.message).join('; ')
+      );
+      shopifyError.statusCode = 422;
+      throw shopifyError;
+    }
 
-    return data.draft_order;
+    const result = data.data && data.data.draftOrderCreate;
+    if (!result) {
+      throw new Error('Shopify returned an invalid draft order response');
+    }
 
+    if (Array.isArray(result.userErrors) && result.userErrors.length > 0) {
+      const shopifyError = new Error(
+        result.userErrors.map(error => error.message).join('; ')
+      );
+      shopifyError.statusCode = 422;
+      throw shopifyError;
+    }
+
+    if (!result.draftOrder || !result.draftOrder.invoiceUrl) {
+      throw new Error('Shopify did not return a draft order checkout URL');
+    }
+
+    console.log('Draft order created:', result.draftOrder.id);
+    return result.draftOrder;
   } catch (error) {
-    if (retryCount < MAX_RETRIES && error.message.includes('fetch')) {
+    if (
+      retryCount < MAX_RETRIES &&
+      !error.statusCode &&
+      (error.message.includes('fetch') || error.name === 'TypeError')
+    ) {
       const delay = INITIAL_RETRY_DELAY * Math.pow(2, retryCount);
-      console.log(`Network error. Retrying after ${delay}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
-
+      console.log(
+        `Network error. Retrying after ${delay}ms ` +
+        `(attempt ${retryCount + 1}/${MAX_RETRIES})`
+      );
       await sleep(delay);
-      return createDraftOrderWithRetry(apiUrl, draftOrderData, retryCount + 1);
+      return createDraftOrderWithRetry(apiUrl, draftOrderInput, retryCount + 1);
     }
 
     throw error;
   }
 }
 
-/**
- * Sleep utility for retry delays
- */
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-/**
- * Calculate the exact discount per unit while preventing a discount from
- * exceeding the current unit price.
- */
 function calculateUnitDiscountAmount(price, percent) {
   const rawDiscountAmount = Number(price) * Number(percent) / 100;
   return Math.min(Number(price), Math.max(0, rawDiscountAmount));
 }
 
-/**
- * Format a monetary value for Shopify's REST Draft Order payload.
- */
 function formatMoney(value) {
   return Number(value).toFixed(2);
 }
 
 /**
- * Restore the currency scale expected by Shopify fixed-amount discounts.
+ * Convert a Shopify storefront integer price into the major currency unit.
+ * `price` is retained for cached clients that divided the raw value by 100.
  */
-function toShopifyFixedAmount(value) {
-  return Number(value) * FIXED_AMOUNT_SCALE;
+function getUnitPrice(item, currency) {
+  if (item.price_minor !== undefined && item.price_minor !== null) {
+    const rawPrice = Number(item.price_minor);
+    return ZERO_DECIMAL_CURRENCIES.has(currency) ? rawPrice : rawPrice / 100;
+  }
+
+  const legacyPrice = Number(item.price);
+  return ZERO_DECIMAL_CURRENCIES.has(currency) ? legacyPrice * 100 : legacyPrice;
 }
 
-/**
- * Shopify accepts percentage discounts from 0 to 100 with at most
- * two digits after the decimal point.
- */
+function normalizeCurrency(value) {
+  const currency = String(value || '').trim().toUpperCase();
+  return /^[A-Z]{3}$/.test(currency) ? currency : '';
+}
+
+function toProductVariantGid(variantId) {
+  const value = String(variantId);
+  return value.startsWith('gid://shopify/ProductVariant/')
+    ? value
+    : `gid://shopify/ProductVariant/${value}`;
+}
+
+function toCustomerGid(customerId) {
+  const value = String(customerId);
+  return value.startsWith('gid://shopify/Customer/')
+    ? value
+    : `gid://shopify/Customer/${value}`;
+}
+
 function normalizeDiscountPercent(percent) {
   const boundedPercent = Math.min(100, Math.max(0, Number(percent)));
   return Math.round((boundedPercent + Number.EPSILON) * 100) / 100;
