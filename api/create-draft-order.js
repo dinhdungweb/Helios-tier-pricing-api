@@ -3,7 +3,7 @@
  * Create a draft order with exact, currency-aware line item discounts.
  */
 
-const SHOPIFY_SHOP = process.env.SHOPIFY_SHOP;
+const SHOPIFY_SHOP = normalizeShopDomain(process.env.SHOPIFY_SHOP);
 const SHOPIFY_ACCESS_TOKEN = process.env.SHOPIFY_ACCESS_TOKEN;
 const DEFAULT_CURRENCY = (process.env.SHOPIFY_CURRENCY || 'VND').toUpperCase();
 const API_VERSION = '2026-07';
@@ -323,6 +323,19 @@ function getUnitPrice(item, currency) {
 function normalizeCurrency(value) {
   const currency = String(value || '').trim().toUpperCase();
   return /^[A-Z]{3}$/.test(currency) ? currency : '';
+}
+
+function normalizeShopDomain(value) {
+  const domain = String(value || '')
+    .trim()
+    .replace(/^https?:\/\//i, '')
+    .split('/')[0];
+
+  if (!domain) {
+    return '';
+  }
+
+  return domain.includes('.') ? domain : `${domain}.myshopify.com`;
 }
 
 function toProductVariantGid(variantId) {
