@@ -58,10 +58,13 @@ module.exports = async (req, res) => {
       if (!item.quantity || item.quantity <= 0) {
         return res.status(400).json({ error: `Item ${i}: quantity must be greater than 0` });
       }
-      if (item.price === undefined || item.price < 0) {
+      const price = Number(item.price);
+      const discountPercent = Number(item.discount_percent || 0);
+
+      if (!Number.isFinite(price) || price < 0) {
         return res.status(400).json({ error: `Item ${i}: price must be a positive number` });
       }
-      if (item.discount_percent < 0 || item.discount_percent > 100) {
+      if (!Number.isFinite(discountPercent) || discountPercent < 0 || discountPercent > 100) {
         return res.status(400).json({ error: `Item ${i}: discount_percent must be between 0 and 100` });
       }
     }
@@ -76,16 +79,32 @@ module.exports = async (req, res) => {
       };
 
       // Add discount if applicable
-      if (item.discount_percent > 0) {
-        // Check if this is a free gift (100% discount + is_gift flag)
-        const isGift = item.is_gift || item.discount_percent === 100;
+      const price = Number(item.price);
+      const quantity = Number(item.quantity);
+      const discountPercent = Number(item.discount_percent || 0);
 
-        lineItem.applied_discount = {
-          description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${item.discount_percent}%`,
-          value_type: 'percentage',
-          value: item.discount_percent.toString(),
-          amount: calculateDiscountAmount(item.price, item.quantity, item.discount_percent)
-        };
+      if (discountPercent > 0) {
+        const isGift = Boolean(item.is_gift);
+        const isFullDiscount = discountPercent >= 100;
+
+        if (isFullDiscount) {
+          // Shopify rejects percentage discounts at exactly 100%.
+          // A fixed discount equal to the current unit price produces the
+          // intended zero-value line while keeping the product variant.
+          lineItem.applied_discount = {
+            description: isGift ? 'Quà tặng miễn phí' : 'Tier Discount 100%',
+            value_type: 'fixed_amount',
+            value: formatMoney(price),
+            amount: formatMoney(price * quantity)
+          };
+        } else {
+          lineItem.applied_discount = {
+            description: isGift ? 'Quà tặng miễn phí' : `Tier Discount ${discountPercent}%`,
+            value_type: 'percentage',
+            value: discountPercent.toString(),
+            amount: calculateDiscountAmount(price, quantity, discountPercent)
+          };
+        }
       }
 
       return lineItem;
@@ -218,4 +237,11 @@ function calculateDiscountAmount(price, quantity, percent) {
   const totalPrice = price * quantity;
   const discountAmount = (totalPrice * percent / 100).toFixed(2);
   return discountAmount;
+}
+
+/**
+ * Format a monetary value for the Shopify REST payload.
+ */
+function formatMoney(value) {
+  return Number(value).toFixed(2);
 }
