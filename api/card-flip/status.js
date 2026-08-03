@@ -28,6 +28,11 @@ module.exports = async (req, res) => {
       allowed_turns: state.allowedTurns,
       used_turns: state.usedTurns,
       remaining_turns: state.remainingTurns,
+      qualifying_order_days: state.qualifyingOrderDays,
+      daily_order_amount: state.config.dailyOrderAmount,
+      campaign_end_date: state.config.campaignEndDate,
+      campaign_time_zone: state.config.timeZone,
+      is_campaign_active: state.campaignActive,
       accumulated_order_amount: state.accumulatedOrderAmount,
       history: state.campaignHistory.slice(0, limit)
     });
