@@ -77,3 +77,54 @@ test('normalizes valid campaign deadlines and rejects invalid dates', () => {
   assert.equal(__test.normalizeCampaignEndDate('2026-02-31'), '');
   assert.equal(__test.normalizeCampaignEndDate('not-a-date'), '');
 });
+
+test('maps every campaign card title to its own inventory key', () => {
+  const titles = [
+    ['CHAPTER I - ORIGIN', 'chapter_i'],
+    ['CHAPTER II - THE FORGE', 'chapter_ii'],
+    ['CHAPTER III - DNA', 'chapter_iii'],
+    ['CHAPTER IV - THE ICONS', 'chapter_iv'],
+    ['CHAPTER V - BEYOND JEWELRY', 'chapter_v'],
+    ['CHAPTER VI - CROSSROADS', 'chapter_vi'],
+    ['CHAPTER VII - PEOPLE', 'chapter_vii'],
+    ['CHAPTER VIII - THE WEARERS', 'chapter_viii'],
+    ['CHAPTER IX - HEIRLOOM', 'chapter_ix'],
+    ['CHAPTER X - FUTURE', 'chapter_x'],
+    ['CHAPTER XI - THE OPENING', 'chapter_xi'],
+    ['LIMITED CARD', 'limited_card']
+  ];
+
+  titles.forEach(([title, expectedKey]) => {
+    assert.equal(__test.getInventoryCardKey({ title }), expectedKey);
+  });
+
+  assert.equal(__test.getInventoryCardKey({ inventoryKey: 'chapter_v', title: 'Tên hiển thị tùy chỉnh' }), 'chapter_v');
+});
+
+test('keeps new regular cards unlimited until a quantity is configured', () => {
+  const inventory = __test.normalizeCampaignInventory({});
+
+  assert.equal(inventory.chapter_i.capacity, null);
+  assert.equal(inventory.chapter_x.capacity, null);
+  assert.equal(inventory.chapter_xi.capacity, 0);
+  assert.equal(inventory.limited_card.capacity, 0);
+});
+
+test('serializes configured quantities with claimed and remaining counts', () => {
+  const cards = __test.serializeCampaignInventory({
+    chapter_i: { capacity: 20, claimed: 7 },
+    chapter_ii: { capacity: 3, claimed: 5 }
+  });
+  const chapterI = cards.find((card) => card.key === 'chapter_i');
+  const chapterII = cards.find((card) => card.key === 'chapter_ii');
+  const chapterIII = cards.find((card) => card.key === 'chapter_iii');
+
+  assert.deepEqual(
+    { capacity: chapterI.capacity, claimed: chapterI.claimed, remaining: chapterI.remaining, managed: chapterI.managed },
+    { capacity: 20, claimed: 7, remaining: 13, managed: true }
+  );
+  assert.equal(chapterII.remaining, 0);
+  assert.equal(chapterIII.capacity, null);
+  assert.equal(chapterIII.remaining, null);
+  assert.equal(chapterIII.managed, false);
+});

@@ -1,8 +1,8 @@
 const {
   setCorsHeaders,
   handleError,
-  getSpecialCardInventory,
-  updateSpecialCardInventory,
+  getCardInventory,
+  updateCardInventory,
   httpError
 } = require('../../lib/card-flip-store');
 
@@ -15,11 +15,11 @@ module.exports = async (req, res) => {
 
   try {
     if (req.method === 'GET') {
-      return res.status(200).json(await getSpecialCardInventory(req.query));
+      return res.status(200).json(await getCardInventory(req.query));
     }
 
     if (req.method === 'POST') {
-      return res.status(200).json(await updateSpecialCardInventory(parseBody(req.body)));
+      return res.status(200).json(await updateCardInventory(parseBody(req.body)));
     }
 
     return res.status(405).json({ success: false, error: 'Method not allowed' });
