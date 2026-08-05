@@ -61,6 +61,18 @@ test('accepts partially refunded orders only when their current total still meet
   assert.deepEqual(summary.qualifyingDays, ['2026-08-08']);
 });
 
+test('returns only qualifying Shopify order names for history reconciliation', () => {
+  const summary = __test.summarizeOrderEligibility([
+    order('2026-08-08T02:00:00.000Z', 500000, { name: '#1001' }),
+    order('2026-08-09T02:00:00.000Z', 499999, { name: '#1002' }),
+    order('2026-08-10T02:00:00.000Z', 800000, { name: '#1003', cancelledAt: '2026-08-10T03:00:00.000Z' })
+  ], baseConfig, new Date('2026-08-20T00:00:00.000Z'));
+
+  assert.deepEqual(summary.qualifyingOrders, [
+    { name: '#1001', created_at: '2026-08-08T02:00:00.000Z' }
+  ]);
+});
+
 test('date-only campaign deadline includes the full Vietnam calendar day', () => {
   assert.equal(__test.isCampaignActive(baseConfig, new Date('2026-08-31T16:59:59.999Z')), true);
   assert.equal(__test.isCampaignActive(baseConfig, new Date('2026-08-31T17:00:00.000Z')), false);
