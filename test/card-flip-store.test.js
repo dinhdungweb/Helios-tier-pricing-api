@@ -140,3 +140,64 @@ test('serializes configured quantities with claimed and remaining counts', () =>
   assert.equal(chapterIII.remaining, null);
   assert.equal(chapterIII.managed, false);
 });
+
+test('deduplicates concurrent cached resource loads', async () => {
+  const cache = new Map();
+  const inflight = new Map();
+  let calls = 0;
+  const options = {
+    cache,
+    inflight,
+    key: 'customer-1',
+    ttlMs: 30000,
+    staleTtlMs: 300000,
+    loader: async () => {
+      calls += 1;
+      return { turns: 2 };
+    }
+  };
+
+  const [first, second] = await Promise.all([
+    __test.getCachedResource(options),
+    __test.getCachedResource(options)
+  ]);
+  const third = await __test.getCachedResource(options);
+
+  assert.equal(calls, 1);
+  assert.deepEqual(first, { turns: 2 });
+  assert.deepEqual(second, first);
+  assert.deepEqual(third, first);
+});
+
+test('uses stale cache when a Shopify refresh fails', async () => {
+  const cache = new Map();
+  const inflight = new Map();
+  __test.writeRuntimeCache(cache, 'customer-2', { turns: 1 }, Date.now() - 60000);
+
+  const value = await __test.getCachedResource({
+    cache,
+    inflight,
+    key: 'customer-2',
+    ttlMs: 30000,
+    staleTtlMs: 300000,
+    loader: async () => { throw new Error('THROTTLED'); }
+  });
+
+  assert.deepEqual(value, { turns: 1 });
+});
+
+test('detects GraphQL throttling and calculates a bounded retry delay', () => {
+  const data = {
+    errors: [{ message: 'Throttled', extensions: { code: 'THROTTLED' } }],
+    extensions: {
+      cost: {
+        requestedQueryCost: 100,
+        throttleStatus: { currentlyAvailable: 0, restoreRate: 50 }
+      }
+    }
+  };
+
+  assert.equal(__test.isGraphqlThrottled(data), true);
+  assert.equal(__test.getShopifyRetryDelayMs('', data, 0, () => 0), 2000);
+  assert.equal(__test.getShopifyRetryDelayMs('20', {}, 0, () => 0), 3000);
+});
