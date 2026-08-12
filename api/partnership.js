@@ -160,7 +160,8 @@ async function loadPublishedSectionRecipient(templateFile, sectionId) {
   }
 
   const template = parseShopifyJson(content);
-  const configuredSection = template.sections && template.sections[sectionId];
+  const sectionKey = normalizePublishedSectionKey(sectionId);
+  const configuredSection = template.sections && template.sections[sectionKey];
   if (!configuredSection || configuredSection.type !== 'partnership-contact-form') {
     throw new Error('Partnership section was not found in the published template');
   }
@@ -266,6 +267,12 @@ function normalizeTemplateFilename(value) {
   return /^templates\/[a-z0-9_-]+(?:\.[a-z0-9_-]+)?\.json$/i.test(filename)
     ? filename
     : '';
+}
+
+function normalizePublishedSectionKey(value) {
+  const sectionId = String(value || '').trim();
+  const separatorIndex = sectionId.lastIndexOf('__');
+  return separatorIndex >= 0 ? sectionId.slice(separatorIndex + 2) : sectionId;
 }
 
 function parseList(value) {

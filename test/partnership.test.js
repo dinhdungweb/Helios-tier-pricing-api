@@ -22,7 +22,10 @@ test('sends to the recipient read from the published Partnership section', async
 
   try {
     const response = createResponse();
-    await handler(createRequest({ recipient_email: 'marketing@helios.vn' }), response);
+    await handler(createRequest({
+      recipient_email: 'marketing@helios.vn',
+      section_id: 'template--23112006828253__partnership_contact_form_Fiyrqp'
+    }), response);
 
     assert.equal(response.statusCode, 200);
     assert.deepEqual(response.body, { success: true });
