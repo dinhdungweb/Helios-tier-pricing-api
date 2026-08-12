@@ -239,8 +239,23 @@ function buildEmailText(submission) {
     submission.documentLinks || '(Không có)',
     '',
     `Trang gửi: ${submission.pageUrl || '(Không xác định)'}`,
-    `Thời gian UTC: ${new Date().toISOString()}`
+    `Thời gian Việt Nam: ${formatVietnamTime(new Date())}`
   ].join('\n');
+}
+
+function formatVietnamTime(date) {
+  const parts = new Intl.DateTimeFormat('vi-VN', {
+    timeZone: 'Asia/Ho_Chi_Minh',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hourCycle: 'h23'
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map(part => [part.type, part.value]));
+  return `${values.day}/${values.month}/${values.year} ${values.hour}:${values.minute}:${values.second} (GMT+7)`;
 }
 
 function cleanText(value, maxLength) {

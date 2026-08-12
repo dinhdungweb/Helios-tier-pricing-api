@@ -31,6 +31,11 @@ test('sends to the recipient read from the published Partnership section', async
     assert.deepEqual(response.body, { success: true });
     assert.deepEqual(sentPayload.to, ['marketing@helios.vn']);
     assert.equal(sentPayload.reply_to, 'partner@example.com');
+    assert.match(
+      sentPayload.text,
+      /Thời gian Việt Nam: \d{2}\/\d{2}\/\d{4} \d{2}:\d{2}:\d{2} \(GMT\+7\)/
+    );
+    assert.doesNotMatch(sentPayload.text, /Thời gian UTC:/);
   } finally {
     global.fetch = originalFetch;
   }
