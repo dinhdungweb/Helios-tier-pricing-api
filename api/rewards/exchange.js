@@ -1,3 +1,4 @@
+const messages = require('../../lib/localization');
 /**
  * Rewards Exchange API
  * Đổi điểm thưởng lấy mã giảm giá
@@ -21,6 +22,7 @@ const EXCHANGE_RATES = {
 const MIN_POINTS_REQUIRED = 50000;
 
 module.exports = async (req, res) => {
+  messages.localizeResponse(req, res);
     // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
@@ -59,7 +61,7 @@ module.exports = async (req, res) => {
         const DEADLINE = new Date('2026-03-01T00:00:00+07:00'); // Hết ngày 28/02/2026
         if (new Date() > DEADLINE) {
             return res.status(400).json({
-                error: 'Chương trình đổi điểm đã kết thúc vào ngày 28/02/2026'
+                error: messages.message('rewards_ended')
             });
         }
 
@@ -75,7 +77,7 @@ module.exports = async (req, res) => {
 
         if (currentPoints < pointsRequired) {
             return res.status(400).json({
-                error: 'Không đủ điểm',
+                error: messages.message('insufficient_points'),
                 current_points: currentPoints,
                 points_required: pointsRequired
             });
@@ -94,7 +96,7 @@ module.exports = async (req, res) => {
         // 4. Lưu lịch sử
         await addRewardHistory(customer_id, {
             date: new Date().toISOString(),
-            action: 'Đổi điểm lấy Gift Card',
+            action: messages.message('gift_card_redemption'),
             points_used: pointsRequired,
             discount_code: giftCardCode,
             amount_vnd: discount_value,
@@ -222,7 +224,7 @@ async function createGiftCard(amountVnd, customerId) {
                     initial_value: amountVnd.toString(),
                     code: code,
                     customer_id: customerId,
-                    note: 'Đổi điểm thưởng Helios Rewards',
+                    note: messages.message('reward_note'),
                     expires_on: '2026-02-28'
                 }
             })

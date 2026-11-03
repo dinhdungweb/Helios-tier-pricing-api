@@ -1,3 +1,4 @@
+const { localizeResponse } = require('../../lib/localization');
 const {
   setCorsHeaders,
   handleError,
@@ -7,6 +8,7 @@ const {
 } = require('../../lib/card-flip-store');
 
 module.exports = async (req, res) => {
+  localizeResponse(req, res);
   setCorsHeaders(res);
 
   if (req.method === 'OPTIONS') {

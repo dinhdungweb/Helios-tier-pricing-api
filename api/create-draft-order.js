@@ -1,3 +1,4 @@
+const messages = require('../lib/localization');
 /**
  * Shopify Draft Order API
  * Create a draft order with exact, currency-aware line item discounts.
@@ -16,6 +17,7 @@ const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 1000;
 
 module.exports = async (req, res) => {
+  messages.localizeResponse(req, res);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -96,7 +98,7 @@ module.exports = async (req, res) => {
 
       if (unitDiscountAmount > 0) {
         const discountTitle = item.is_gift
-          ? 'Quà tặng miễn phí'
+          ? messages.message('free_gift', {}, messages.getLocale(req))
           : `Tier Discount ${displayDiscountPercent}%`;
         const formattedDiscount = formatMoney(unitDiscountAmount);
 

@@ -1,3 +1,4 @@
+const messages = require('../lib/localization');
 /**
  * Shopify Draft Order API
  *
@@ -53,6 +54,7 @@ const ALLOWED_ORIGINS = new Set(
 );
 
 module.exports = async (req, res) => {
+  messages.localizeResponse(req, res);
   setCorsHeaders(req, res);
 
   if (req.method === 'OPTIONS') {
@@ -137,7 +139,9 @@ module.exports = async (req, res) => {
       shopCurrency: checkoutContext.shopCurrency,
       policy
     });
-    const lineItems = authoritativeItems.map(buildDraftOrderLineItem);
+    const lineItems = authoritativeItems.map(item =>
+      buildDraftOrderLineItem(item, messages.getLocale(req))
+    );
     const draftOrderInput = {
       lineItems,
       presentmentCurrencyCode: currency,
@@ -389,7 +393,7 @@ async function loadPublishedThemeTierPolicy(mainTheme) {
   }
 }
 
-function buildDraftOrderLineItem(item) {
+function buildDraftOrderLineItem(item, locale = 'vi') {
   const lineItem = {
     variantId: toProductVariantGid(item.variantId),
     quantity: item.quantity
@@ -402,7 +406,7 @@ function buildDraftOrderLineItem(item) {
 
   if (lineDiscountAmount > 0) {
     const discountTitle = item.isGift
-      ? 'Quà tặng miễn phí'
+      ? messages.message('free_gift', {}, locale)
       : `Tier Discount ${normalizeDiscountPercent(item.discountPercent)}%`;
     const formattedDiscount = formatMoney(
       lineDiscountAmount,

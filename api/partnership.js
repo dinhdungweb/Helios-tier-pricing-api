@@ -1,3 +1,4 @@
+const messages = require('../lib/localization');
 const DEFAULT_ALLOWED_ORIGINS =
   'https://helios.vn,https://www.helios.vn,https://heliosjewels-vn.myshopify.com';
 const SHOPIFY_API_VERSION = '2026-07';
@@ -9,6 +10,7 @@ const RATE_LIMIT_MAX_REQUESTS = 5;
 const requestLog = new Map();
 
 module.exports = async (req, res) => {
+  messages.localizeResponse(req, res);
   const origin = normalizeOrigin(req.headers && req.headers.origin);
   const allowedOrigins = parseList(process.env.ALLOWED_ORIGINS || DEFAULT_ALLOWED_ORIGINS)
     .map(normalizeOrigin);
@@ -30,7 +32,7 @@ module.exports = async (req, res) => {
   if (isRateLimited(getClientIp(req))) {
     return res.status(429).json({
       error: 'Too many requests',
-      message: 'Vui lòng thử lại sau ít phút.'
+      message: messages.message('retry_later')
     });
   }
 
@@ -40,7 +42,7 @@ module.exports = async (req, res) => {
     console.error('Partnership email environment variables are incomplete');
     return res.status(503).json({
       error: 'Service unavailable',
-      message: 'Hệ thống nhận thông tin chưa được cấu hình.'
+      message: messages.message('not_configured')
     });
   }
 
@@ -56,7 +58,7 @@ module.exports = async (req, res) => {
   if (!templateFile || !sectionId) {
     return res.status(400).json({
       error: 'Invalid section',
-      message: 'Không xác định được cấu hình section.'
+      message: messages.message('invalid_section')
     });
   }
 
@@ -86,7 +88,7 @@ module.exports = async (req, res) => {
         from: fromEmail,
         to: [recipientEmail],
         reply_to: submission.email,
-        subject: `Đề xuất hợp tác HELIOS từ ${submission.email}`,
+        subject: messages.message('partnership_subject', { email: submission.email }),
         text: buildEmailText(submission)
       })
     });
@@ -96,7 +98,7 @@ module.exports = async (req, res) => {
       console.error('Resend partnership email failed:', resendResponse.status, resendError);
       return res.status(502).json({
         error: 'Email delivery failed',
-        message: 'Chưa thể gửi thông tin. Vui lòng thử lại.'
+        message: messages.message('send_failed')
       });
     }
 
@@ -105,7 +107,7 @@ module.exports = async (req, res) => {
     console.error('Partnership email error:', error);
     return res.status(500).json({
       error: 'Email delivery failed',
-      message: error.publicMessage || 'Chưa thể gửi thông tin. Vui lòng thử lại.'
+      message: error.publicMessage || messages.message('send_failed')
     });
   }
 };
@@ -171,7 +173,7 @@ async function loadPublishedSectionRecipient(templateFile, sectionId) {
   );
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(recipientEmail)) {
     const error = new Error('Recipient email is missing from the published Partnership section');
-    error.publicMessage = 'Vui lòng cấu hình Recipient email trong section Partnership.';
+    error.publicMessage = messages.message('recipient_missing');
     throw error;
   }
 
@@ -212,34 +214,34 @@ function parseShopifyJson(content) {
 
 function validateSubmission(submission) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(submission.email)) {
-    return 'Email liên hệ không hợp lệ.';
+    return messages.message('invalid_email');
   }
   if (!submission.reason || !submission.goal || !submission.expectedSupport) {
-    return 'Vui lòng điền đầy đủ các trường bắt buộc.';
+    return messages.message('required_fields');
   }
   return '';
 }
 
 function buildEmailText(submission) {
   return [
-    'ĐỀ XUẤT HỢP TÁC HELIOS',
+    messages.message('partnership_heading'),
     '',
-    `Email liên hệ: ${submission.email}`,
+    messages.message('contact_email', { email: submission.email }),
     '',
-    'Vì sao quan tâm đến HELIOS:',
+    messages.message('partnership_reason'),
     submission.reason,
     '',
-    'Mục tiêu trong 12–24 tháng:',
+    messages.message('partnership_goals'),
     submission.goal,
     '',
-    'Hỗ trợ mong đợi từ HELIOS:',
+    messages.message('partnership_support'),
     submission.expectedSupport,
     '',
-    'Link tài liệu:',
-    submission.documentLinks || '(Không có)',
+    messages.message('document_links'),
+    submission.documentLinks || messages.message('none'),
     '',
-    `Trang gửi: ${submission.pageUrl || '(Không xác định)'}`,
-    `Thời gian Việt Nam: ${formatVietnamTime(new Date())}`
+    messages.message('source_page', { page: submission.pageUrl || messages.message('unknown') }),
+    messages.message('vietnam_time', { time: formatVietnamTime(new Date()) })
   ].join('\n');
 }
 
