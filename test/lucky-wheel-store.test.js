@@ -5,7 +5,8 @@ const { __test } = require('../lib/lucky-wheel-store');
 
 const SECRET = 'test-secret';
 
-const config = __test.buildConfig({
+function rawSettings() {
+  return {
   lucky_wheel_enabled: true,
   lucky_wheel_start: '2026-12-01',
   lucky_wheel_end: '2026-12-31',
@@ -21,7 +22,9 @@ const config = __test.buildConfig({
   lucky_wheel_prize_7_name: 'Cốc gốm (SECRET)', lucky_wheel_prize_7_stock: 2,
   lucky_wheel_prize_8_name: 'Xu moneta', lucky_wheel_prize_8_stock: 7,
   lucky_wheel_prize_9_name: 'Tất Surgo', lucky_wheel_prize_9_stock: 8
-});
+  };
+}
+const config = __test.buildConfig(rawSettings());
 
 function seeded(seed) {
   let s = seed >>> 0;
@@ -163,4 +166,32 @@ test('ledger + customer: marking as sent updates both, unknown id fails', () => 
 
   const history = __test.setPrizeStatus(__test.applyToCustomerHistory({}, result), '20261205-42', 'sent');
   assert.equal(history.prizes[0].status, 'sent');
+});
+
+test('win chance: reaching a drop time does not guarantee a win', () => {
+  const low = __test.buildConfig({ ...rawSettings(), lucky_wheel_win_chance: 10 });
+  assert.equal(low.winChance, 0.1);
+  const dayStart = __test.localDayStart('2026-12-05');
+  // First spinner right after every drop: with 10% chance most of them must not win
+  let firstSpinWins = 0;
+  for (let trial = 0; trial < 200; trial += 1) {
+    const state = __test.emptyState();
+    const rng = seeded(1000 + trial);
+    __test.decideSpin(state, 'warmup', dayStart + 60000, low, rng); // creates the day (00:01, before drops)
+    const firstDrop = state.days['2026-12-05'].winTimes[0];
+    const { result } = __test.decideSpin(state, 'x' + trial, firstDrop + 1000, low, rng);
+    if (result.type === 'win') firstSpinWins += 1;
+  }
+  assert.ok(firstSpinWins < 60, 'expected ~10% wins, got ' + firstSpinWins + '/200');
+  assert.ok(firstSpinWins > 0);
+});
+
+test('win chance 100%: first spinner after a drop always wins', () => {
+  const sure = __test.buildConfig({ ...rawSettings(), lucky_wheel_win_chance: 100 });
+  const dayStart = __test.localDayStart('2026-12-05');
+  const state = __test.emptyState();
+  const rng = seeded(9);
+  __test.decideSpin(state, 'warmup', dayStart + 60000, sure, rng);
+  const firstDrop = state.days['2026-12-05'].winTimes[0];
+  assert.equal(__test.decideSpin(state, 'a', firstDrop + 1000, sure, rng).result.type, 'win');
 });
