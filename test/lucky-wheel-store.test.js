@@ -195,3 +195,33 @@ test('win chance 100%: first spinner after a drop always wins', () => {
   const firstDrop = state.days['2026-12-05'].winTimes[0];
   assert.equal(__test.decideSpin(state, 'a', firstDrop + 1000, sure, rng).result.type, 'win');
 });
+
+test('admin delete: a deleted win goes back to stock, reopens the slot and the customer can spin again', () => {
+  const sure = __test.buildConfig({ ...rawSettings(), lucky_wheel_win_chance: 100 });
+  const state = __test.emptyState();
+  const rng = seeded(4);
+  const dayStart = __test.localDayStart('2026-12-05');
+  __test.decideSpin(state, 'warmup', dayStart + 60000, sure, rng);
+  const drop = state.days['2026-12-05'].winTimes[0];
+  const { result } = __test.decideSpin(state, '55', drop + 1000, sure, rng);
+  assert.equal(result.type, 'win');
+  assert.equal(state.awarded[result.key], 1);
+
+  __test.removeFromState(state, result.id, '55');
+  assert.equal(state.awarded[result.key], 0);
+  assert.equal(state.winners.length, 0);
+  assert.equal(state.days['2026-12-05'].wins, 0);
+  assert.equal(state.days['2026-12-05'].spins['55'], undefined);
+
+  const again = __test.decideSpin(state, '55', drop + 2000, sure, rng);
+  assert.equal(again.alreadySpun, false);
+});
+
+test('admin delete: removes the spin and prize from the customer history only', () => {
+  const r1 = { id: '20261205-55', type: 'card', key: 'card', name: 'Thẻ chương 10 năm', at: Date.parse('2026-12-05T10:00:00Z'), day: '2026-12-05' };
+  const r2 = { id: '20261206-55', type: 'win', key: 'p1', name: 'Summer sock', at: Date.parse('2026-12-06T10:00:00Z'), day: '2026-12-06' };
+  let h = __test.applyToCustomerHistory(__test.applyToCustomerHistory({}, r1), r2);
+  h = __test.removeFromHistory(h, '20261205-55');
+  assert.deepEqual(h.prizes.map((p) => p.id), ['20261206-55']);
+  assert.deepEqual(h.spins.map((p) => p.id), ['20261206-55']);
+});
