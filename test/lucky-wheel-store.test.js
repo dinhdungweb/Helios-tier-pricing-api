@@ -320,3 +320,18 @@ test('webhook signature must match the app secret', () => {
   assert.equal(__test.verifyWebhookHmac(Buffer.from('{"id":2}'), good, 's3cret'), false);
   assert.equal(__test.verifyWebhookHmac(body, '', 's3cret'), false);
 });
+
+test('webhook payload: only a plain numeric order id is used', () => {
+  assert.equal(__test.webhookOrderGid({ admin_graphql_api_id: 'gid://shopify/Order/123', id: 123 }), 'gid://shopify/Order/123');
+  assert.equal(__test.webhookOrderGid({ id: 456 }), 'gid://shopify/Order/456');
+  assert.equal(__test.webhookOrderGid({ admin_graphql_api_id: 'gid://shopify/Customer/1' }), null);
+  assert.equal(__test.webhookOrderGid({ id: '1 OR 1' }), null);
+  assert.equal(__test.webhookOrderGid({}), null);
+});
+
+test('requests that do not look like a Shopify orders/create webhook are rejected before any API call', async () => {
+  const { handleOrderWebhook } = require('../lib/lucky-wheel-store');
+  const body = [Buffer.from('{"id":1}')];
+  await assert.rejects(handleOrderWebhook(body, { 'x-shopify-topic': 'orders/create' }), /Not a Shopify order webhook/);
+  await assert.rejects(handleOrderWebhook(body, { 'x-shopify-topic': 'customers/create', 'x-shopify-webhook-id': 'x' }), /Not a Shopify order webhook/);
+});
