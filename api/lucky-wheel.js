@@ -6,6 +6,7 @@
  * Customers (token rendered by the theme for the logged-in customer):
  *   POST { "action": "status", "token": "..." }
  *   POST { "action": "spin",   "token": "..." }
+ *   POST { "action": "claim",  "token": "...", "id": "<prize id>" }  -> customer-only gift discount code
  *
  * Staff (password = LUCKY_WHEEL_ADMIN_KEY):
  *   GET  /api/lucky-wheel                       -> admin page (no data inside)
@@ -23,6 +24,7 @@ const {
   handleError,
   getStatus,
   spin,
+  claim,
   adminOverview,
   adminList,
   adminMark,
@@ -56,6 +58,8 @@ module.exports = async (req, res) => {
         return res.status(200).json(await getStatus(body.token));
       case 'spin':
         return res.status(200).json(await spin(body.token));
+      case 'claim':
+        return res.status(200).json(await claim(body.token, body.id));
       case 'admin_overview':
         return res.status(200).json(await adminOverview(body.admin_key));
       case 'admin_list':

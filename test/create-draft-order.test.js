@@ -221,7 +221,8 @@ test('handler derives price and discount from Shopify responses', async () => {
           price_minor: 0,
           discount_percent: 100,
           is_gift: true
-        }]
+        }],
+        discount_codes: ['LWFORGED123']
       }
     };
     const res = createMockResponse();
@@ -245,6 +246,27 @@ test('handler derives price and discount from Shopify responses', async () => {
       capturedDraftInput.lineItems[0].appliedDiscount.amountWithCurrency.currencyCode,
       'VND'
     );
+    // Unsigned requests never forward discount codes
+    assert.equal(capturedDraftInput.discountCodes, undefined);
+
+    // Signed App Proxy request: cart discount codes (lucky-wheel gifts) are forwarded for Shopify to validate
+    const query = {
+      logged_in_customer_id: '12345',
+      path_prefix: '/apps/helios-tier-pricing',
+      shop: 'heliosjewels-vn.myshopify.com',
+      timestamp: String(Math.floor(Date.now() / 1000))
+    };
+    query.signature = crypto.createHmac('sha256', 'test-secret')
+      .update(Object.keys(query).sort().map(key => `${key}=${query[key]}`).join(''))
+      .digest('hex');
+    const signedRes = createMockResponse();
+    await handler({
+      ...req,
+      query,
+      body: { ...req.body, discount_codes: ['LWGIFT2345AB', 'bad code!', 'LWGIFT2345AB'] }
+    }, signedRes);
+    assert.equal(signedRes.statusCode, 200);
+    assert.deepEqual(capturedDraftInput.discountCodes, ['LWGIFT2345AB']);
   } finally {
     global.fetch = originalFetch;
   }

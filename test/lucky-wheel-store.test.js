@@ -225,3 +225,80 @@ test('admin delete: removes the spin and prize from the customer history only', 
   assert.deepEqual(h.prizes.map((p) => p.id), ['20261206-55']);
   assert.deepEqual(h.spins.map((p) => p.id), ['20261206-55']);
 });
+
+/* ---------------- Gift redemption ---------------- */
+
+test('product settings are read as handles (plain or shopify:// form)', () => {
+  assert.equal(__test.productHandleFromSetting('summer-sock'), 'summer-sock');
+  assert.equal(__test.productHandleFromSetting('shopify://products/Summer-Sock'), 'summer-sock');
+  assert.equal(__test.productHandleFromSetting(''), '');
+  assert.equal(__test.productHandleFromSetting('bad handle/../x'), '');
+});
+
+test('buildConfig keeps prize products, card product and the buy collection', () => {
+  const config = __test.buildConfig({
+    ...rawSettings(),
+    lucky_wheel_prize_1_product: 'summer-sock',
+    lucky_wheel_card_product: 'the-chuong',
+    lucky_wheel_card_name: '',
+    lucky_wheel_buy_collection: 'trang-suc'
+  });
+  assert.equal(config.prizes.find((p) => p.key === 'p1').productHandle, 'summer-sock');
+  assert.equal(config.consolation.productHandle, 'the-chuong');
+  assert.equal(config.consolation.name, ''); // product title is filled in later
+  assert.equal(config.buyCollectionHandle, 'trang-suc');
+  assert.equal(__test.buildConfig(rawSettings()).buyCollectionHandle, 'all-products');
+});
+
+test('a spin stores the prize product on the customer prize', () => {
+  const config = __test.buildConfig({ ...rawSettings(), lucky_wheel_card_product: 'the-chuong' });
+  const state = __test.emptyState();
+  const now = Date.parse('2026-12-05T01:00:00Z');
+  const { result } = __test.decideSpin(state, '42', now, config, () => 0.99);
+  assert.equal(result.type, 'card');
+  assert.equal(result.product, 'the-chuong');
+  const history = __test.applyToCustomerHistory({}, result);
+  assert.equal(history.prizes[0].product, 'the-chuong');
+});
+
+test('only pending, unexpired prizes of the customer can be claimed', () => {
+  const now = Date.parse('2026-12-10T00:00:00Z');
+  const history = { prizes: [
+    { id: '20261205-42', status: 'pending', expires_at: '2027-01-04T00:00:00Z' },
+    { id: '20261101-42', status: 'pending', expires_at: '2026-12-01T00:00:00Z' },
+    { id: '20261206-42', status: 'used', expires_at: '2027-01-05T00:00:00Z' },
+    { id: '20261207-42', status: 'sent', expires_at: '2027-01-06T00:00:00Z' }
+  ] };
+  assert.equal(__test.claimablePrize(history, '20261205-42', now).id, '20261205-42');
+  assert.throws(() => __test.claimablePrize(history, '20261101-42', now), /hết hạn/);
+  assert.throws(() => __test.claimablePrize(history, '20261206-42', now), /đã được sử dụng/);
+  assert.throws(() => __test.claimablePrize(history, '20261207-42', now), /đã được gửi/);
+  assert.throws(() => __test.claimablePrize(history, '20261208-99', now), /Không tìm thấy/);
+});
+
+test('prize product falls back to the current config for prizes won before products were set', () => {
+  const config = __test.buildConfig({ ...rawSettings(), lucky_wheel_prize_2_product: 'mu-cruiser' });
+  assert.equal(__test.prizeProductHandle({ key: 'p2' }, config), 'mu-cruiser');
+  assert.equal(__test.prizeProductHandle({ key: 'p2', product: 'old-hat' }, config), 'old-hat');
+});
+
+test('gift code: this customer only, once, buy 1 from the collection, the gift free until expiry', () => {
+  const code = __test.randomCode();
+  assert.match(code, /^LW[A-HJ-NP-Z2-9]{10}$/);
+  const input = __test.giftDiscountInput({
+    code,
+    customerId: '42',
+    productId: 'gid://shopify/Product/1',
+    collectionId: 'gid://shopify/Collection/9',
+    prize: { id: '20261205-42', name: 'Summer sock', expires_at: '2027-01-04T00:00:00.000Z' },
+    nowMs: Date.parse('2026-12-10T00:00:00Z')
+  });
+  assert.deepEqual(input.context, { customers: { add: ['gid://shopify/Customer/42'] } });
+  assert.equal(input.usageLimit, 1);
+  assert.equal(input.usesPerOrderLimit, 1);
+  assert.equal(input.appliesOncePerCustomer, true);
+  assert.equal(input.endsAt, '2027-01-04T00:00:00.000Z');
+  assert.deepEqual(input.customerBuys, { value: { quantity: '1' }, items: { collections: { add: ['gid://shopify/Collection/9'] } } });
+  assert.deepEqual(input.customerGets.value, { discountOnQuantity: { quantity: '1', effect: { percentage: 1 } } });
+  assert.deepEqual(input.customerGets.items, { products: { productsToAdd: ['gid://shopify/Product/1'] } });
+});
