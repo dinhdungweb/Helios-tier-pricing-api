@@ -58,8 +58,8 @@ module.exports = async (req, res) => {
   // Shopify webhook: needs the raw body for the HMAC, so read the stream before req.body is touched
   if (req.headers['x-shopify-topic']) {
     try {
-      const raw = await readRawBody(req);
-      const result = await handleOrderWebhook(raw, req.headers);
+      const bodies = await webhookBodies(req);
+      const result = await handleOrderWebhook(bodies, req.headers);
       return res.status(200).json(result);
     } catch (error) {
       return handleError(res, error);
@@ -113,11 +113,29 @@ function parseBody(body) {
   return body;
 }
 
-function readRawBody(req) {
-  return new Promise((resolve, reject) => {
-    const chunks = [];
-    req.on('data', (chunk) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
-    req.on('end', () => resolve(Buffer.concat(chunks)));
-    req.on('error', reject);
-  });
+/**
+ * Candidate raw bodies for the HMAC check. Vercel may already have read the stream
+ * for its req.body helper, so the parsed body is re-serialised as a fallback (exact
+ * for the small payload the subscription sends: id + admin_graphql_api_id).
+ */
+async function webhookBodies(req) {
+  const out = [];
+  const add = (buf) => { if (buf && buf.length && !out.some((b) => b.equals(buf))) out.push(buf); };
+  if (!req.readableEnded) {
+    add(await new Promise((resolve) => {
+      const chunks = [];
+      const done = () => resolve(Buffer.concat(chunks));
+      const timer = setTimeout(done, 1500);
+      req.on('data', (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
+      req.on('end', () => { clearTimeout(timer); done(); });
+      req.on('error', () => { clearTimeout(timer); done(); });
+    }));
+  }
+  try {
+    const parsed = req.body;
+    if (Buffer.isBuffer(parsed)) add(parsed);
+    else if (typeof parsed === 'string') add(Buffer.from(parsed));
+    else if (parsed && typeof parsed === 'object') add(Buffer.from(JSON.stringify(parsed)));
+  } catch (e) { /* body helper unavailable */ }
+  return out;
 }
