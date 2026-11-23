@@ -364,3 +364,50 @@ test('a prize with stock 0 is not on the wheel; chapter card keeps its product',
   const { result } = __test.decideSpin(__test.emptyState(), '42', at, { ...cfg, winsPerDay: 0 }, () => 0);
   assert.equal(result.product, 'the-chuong');
 });
+
+/* ---------------- Scale: compact state under the 128 KB metafield cap ---------------- */
+
+test('spins are stored compactly and expand back to full results', () => {
+  const state = __test.emptyState();
+  const at = __test.localDayStart('2026-12-05') + 23.9 * 3600000;
+  const { result } = __test.decideSpin(state, '6832336732381', at, config, () => 0);
+  assert.equal(result.type, 'win');
+  assert.equal(state.days['2026-12-05'].spins['6832336732381'], result.key);
+  const again = __test.decideSpin(state, '6832336732381', at + 1000, config, () => 0);
+  assert.equal(again.alreadySpun, true);
+  assert.equal(again.result.name, result.name);
+  assert.equal(again.result.id, result.id);
+});
+
+test('3000 spins a day for two days stay well under the 128 KB metafield cap', () => {
+  const state = __test.emptyState();
+  const rng = seeded(42);
+  for (const day of ['2026-12-05', '2026-12-06']) {
+    const start = __test.localDayStart(day);
+    for (let i = 0; i < 3000; i += 1) {
+      const customerId = String(6800000000000 + i * 7919);
+      const at = start + 8 * 3600000 + Math.floor(i * (15 * 3600000) / 3000);
+      __test.decideSpin(state, customerId, at, config, rng);
+    }
+  }
+  const json = __test.trimStateForSize(state, __test.localDayStart('2026-12-06') + 23 * 3600000);
+  const bytes = Buffer.byteLength(json);
+  assert.ok(bytes < 131072, 'state is ' + bytes + ' bytes');
+  assert.equal(Object.keys(state.days['2026-12-06'].spins).length, 3000);
+});
+
+test('near the cap, older days are trimmed first; legacy full-object spins still work', () => {
+  const state = __test.emptyState();
+  const day1 = '2026-12-05', day2 = '2026-12-06';
+  state.days[day1] = { winTimes: [], wins: 0, spins: {}, cardTimes: [], cards: 0 };
+  for (let i = 0; i < 9000; i += 1) state.days[day1].spins[String(6800000000000 + i)] = 'l';
+  // a legacy record (full object) today
+  state.days[day2] = { winTimes: [], wins: 0, cardTimes: [], cards: 0,
+    spins: { '42': { id: '20261206-42', type: 'card', key: 'card', name: 'Thẻ chương 10 năm', at: 1, day: day2 } } };
+  const json = __test.trimStateForSize(state, __test.localDayStart(day2) + 3600000);
+  assert.ok(Buffer.byteLength(json) < 131072);
+  assert.equal(Object.keys(state.days[day1].spins).length, 0);
+  const again = __test.decideSpin(state, '42', __test.localDayStart(day2) + 7200000, config, () => 0);
+  assert.equal(again.alreadySpun, true);
+  assert.equal(again.result.type, 'card');
+});
