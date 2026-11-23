@@ -337,7 +337,7 @@ test('chapter cards: at most one per due drop, spread over the day, 50 per day b
   assert.equal(state.days[day].cardTimes.length, 50);
 });
 
-test('per account: at most 1 prize and 1 chapter card for the whole campaign', () => {
+test('per account: at most 1 prize for the whole campaign; chapter cards can repeat', () => {
   const state = __test.emptyState();
   const always = () => 0; // every chance succeeds
   const types = [];
@@ -345,7 +345,7 @@ test('per account: at most 1 prize and 1 chapter card for the whole campaign', (
     const at = __test.localDayStart('2026-12-0' + d) + 23.9 * 3600000;
     types.push(__test.decideSpin(state, '42', at, config, always).result.type);
   }
-  assert.deepEqual(types, ['win', 'card', 'lose', 'lose', 'lose']);
+  assert.deepEqual(types, ['win', 'card', 'card', 'card', 'card']);
 });
 
 test('prizes keep until the configured expiry date (end of that day, Vietnam time)', () => {
