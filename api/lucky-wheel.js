@@ -98,7 +98,7 @@ module.exports = async (req, res) => {
 
 function publicResult(result) {
   if (!result) return null;
-  return { id: result.id, type: result.type, key: result.key, name: result.name, at: new Date(result.at).toISOString() };
+  return { id: result.id, type: result.type, key: result.key, name: result.name, at: new Date(result.at).toISOString(), expires_at: result.expires ? new Date(result.expires).toISOString() : null };
 }
 
 function parseBody(body) {

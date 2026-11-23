@@ -93,15 +93,6 @@ test('never more than winsPerDay wins in a day, even with many spinners', () => 
   assert.equal(wins, 5);
 });
 
-test('no wins before the first random drop time (everyone gets the chapter card)', () => {
-  const state = __test.emptyState();
-  const before = __test.localDayStart('2026-12-05') + 7 * 3600000; // 07:00 VN, window starts 08:00
-  for (let i = 0; i < 50; i += 1) {
-    const { result } = __test.decideSpin(state, String(i), before, config, seeded(3));
-    assert.equal(result.type, 'card');
-    assert.equal(result.name, 'Thẻ chương 10 năm');
-  }
-});
 
 test('total stock is never exceeded across the whole campaign', () => {
   const state = __test.emptyState();
@@ -127,16 +118,6 @@ test('customer history: prize expires 30 days after winning and is added once', 
   assert.equal(history.prizes[0].expires_at, '2027-01-04T10:00:00.000Z');
 });
 
-test('chapter card spins are saved to the customer prizes with a 30-day expiry', () => {
-  const state = __test.emptyState();
-  const before = __test.localDayStart('2026-12-05') + 7 * 3600000;
-  const { result } = __test.decideSpin(state, '77', before, config, seeded(5));
-  assert.equal(result.key, 'card');
-  const history = __test.applyToCustomerHistory({}, result);
-  assert.equal(history.prizes.length, 1);
-  assert.equal(history.prizes[0].name, 'Thẻ chương 10 năm');
-  assert.equal(Date.parse(history.prizes[0].expires_at) - result.at, 30 * 86400000);
-});
 
 test('chapter cards do not use up the daily win cap or prize stock', () => {
   const state = __test.emptyState();
@@ -252,12 +233,6 @@ test('buildConfig keeps prize products, card product and the minimum order', () 
   assert.equal(__test.buildConfig(rawSettings()).minOrder, 0);
 });
 
-test('a spin stores the prize product on the customer prize', () => {
-  const config = __test.buildConfig({ ...rawSettings(), lucky_wheel_card_product: 'the-chuong' });
-  const { result } = __test.decideSpin(__test.emptyState(), '42', Date.parse('2026-12-05T01:00:00Z'), config, () => 0.99);
-  assert.equal(result.product, 'the-chuong');
-  assert.equal(__test.applyToCustomerHistory({}, result).prizes[0].product, 'the-chuong');
-});
 
 function prizeHistory() {
   return { spins: [], prizes: [
@@ -334,4 +309,58 @@ test('requests that do not look like a Shopify orders/create webhook are rejecte
   const body = [Buffer.from('{"id":1}')];
   await assert.rejects(handleOrderWebhook(body, { 'x-shopify-topic': 'orders/create' }), /Not a Shopify order webhook/);
   await assert.rejects(handleOrderWebhook(body, { 'x-shopify-topic': 'customers/create', 'x-shopify-webhook-id': 'x' }), /Not a Shopify order webhook/);
+});
+
+/* ---------------- Per-account limits, chapter-card drops, better luck next time ---------------- */
+
+test('before the first drop times every spin is "better luck next time" and nothing is kept', () => {
+  const state = __test.emptyState();
+  const before = __test.localDayStart('2026-12-05') + 7 * 3600000; // 07:00 VN, window starts 08:00
+  for (let i = 0; i < 30; i += 1) {
+    const { result } = __test.decideSpin(state, String(i), before, config, seeded(3));
+    assert.equal(result.type, 'lose');
+    assert.equal(result.name, 'Chúc bạn may mắn lần sau');
+    assert.equal(__test.applyToCustomerHistory({}, result).prizes.length, 0);
+  }
+});
+
+test('chapter cards: at most one per due drop, spread over the day, 50 per day by default', () => {
+  const state = __test.emptyState();
+  const day = '2026-12-05';
+  const end = __test.localDayStart(day) + 23.9 * 3600000; // all drops due
+  let cards = 0;
+  for (let i = 0; i < 300; i += 1) {
+    const { result } = __test.decideSpin(state, 'c' + i, end, { ...config, winsPerDay: 0 }, seeded(i + 1));
+    if (result.type === 'card') cards += 1;
+  }
+  assert.equal(cards, 50);
+  assert.equal(state.days[day].cardTimes.length, 50);
+});
+
+test('per account: at most 1 prize and 1 chapter card for the whole campaign', () => {
+  const state = __test.emptyState();
+  const always = () => 0; // every chance succeeds
+  const types = [];
+  for (let d = 5; d <= 9; d += 1) {
+    const at = __test.localDayStart('2026-12-0' + d) + 23.9 * 3600000;
+    types.push(__test.decideSpin(state, '42', at, config, always).result.type);
+  }
+  assert.deepEqual(types, ['win', 'card', 'lose', 'lose', 'lose']);
+});
+
+test('prizes keep until the configured expiry date (end of that day, Vietnam time)', () => {
+  const cfg = __test.buildConfig({ ...rawSettings(), lucky_wheel_prize_expiry: '2026-12-20' });
+  const at = __test.localDayStart('2026-12-05') + 23.9 * 3600000;
+  const { result } = __test.decideSpin(__test.emptyState(), '7', at, { ...cfg, winsPerDay: 0 }, () => 0);
+  assert.equal(result.type, 'card');
+  const prize = __test.applyToCustomerHistory({}, result).prizes[0];
+  assert.equal(prize.expires_at, '2026-12-20T16:59:59.000Z');
+});
+
+test('a prize with stock 0 is not on the wheel; chapter card keeps its product', () => {
+  const cfg = __test.buildConfig({ ...rawSettings(), lucky_wheel_prize_3_stock: 0, lucky_wheel_card_product: 'the-chuong' });
+  assert.equal(cfg.prizes.some((p) => p.key === 'p3'), false);
+  const at = __test.localDayStart('2026-12-05') + 23.9 * 3600000;
+  const { result } = __test.decideSpin(__test.emptyState(), '42', at, { ...cfg, winsPerDay: 0 }, () => 0);
+  assert.equal(result.product, 'the-chuong');
 });
