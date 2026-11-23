@@ -226,7 +226,9 @@ test('admin delete: removes the spin and prize from the customer history only', 
   assert.deepEqual(h.spins.map((p) => p.id), ['20261206-55']);
 });
 
-/* ---------------- Gift redemption ---------------- */
+/* ---------------- Gifts ship with the next order ---------------- */
+
+const crypto = require('node:crypto');
 
 test('product settings are read as handles (plain or shopify:// form)', () => {
   assert.equal(__test.productHandleFromSetting('summer-sock'), 'summer-sock');
@@ -235,70 +237,86 @@ test('product settings are read as handles (plain or shopify:// form)', () => {
   assert.equal(__test.productHandleFromSetting('bad handle/../x'), '');
 });
 
-test('buildConfig keeps prize products, card product and the buy collection', () => {
+test('buildConfig keeps prize products, card product and the minimum order', () => {
   const config = __test.buildConfig({
     ...rawSettings(),
     lucky_wheel_prize_1_product: 'summer-sock',
     lucky_wheel_card_product: 'the-chuong',
     lucky_wheel_card_name: '',
-    lucky_wheel_buy_collection: 'trang-suc'
+    lucky_wheel_min_order: 500000
   });
   assert.equal(config.prizes.find((p) => p.key === 'p1').productHandle, 'summer-sock');
   assert.equal(config.consolation.productHandle, 'the-chuong');
   assert.equal(config.consolation.name, ''); // product title is filled in later
-  assert.equal(config.buyCollectionHandle, 'trang-suc');
-  assert.equal(__test.buildConfig(rawSettings()).buyCollectionHandle, 'all-products');
+  assert.equal(config.minOrder, 500000);
+  assert.equal(__test.buildConfig(rawSettings()).minOrder, 0);
 });
 
 test('a spin stores the prize product on the customer prize', () => {
   const config = __test.buildConfig({ ...rawSettings(), lucky_wheel_card_product: 'the-chuong' });
-  const state = __test.emptyState();
-  const now = Date.parse('2026-12-05T01:00:00Z');
-  const { result } = __test.decideSpin(state, '42', now, config, () => 0.99);
-  assert.equal(result.type, 'card');
+  const { result } = __test.decideSpin(__test.emptyState(), '42', Date.parse('2026-12-05T01:00:00Z'), config, () => 0.99);
   assert.equal(result.product, 'the-chuong');
-  const history = __test.applyToCustomerHistory({}, result);
-  assert.equal(history.prizes[0].product, 'the-chuong');
+  assert.equal(__test.applyToCustomerHistory({}, result).prizes[0].product, 'the-chuong');
 });
 
-test('only pending, unexpired prizes of the customer can be claimed', () => {
-  const now = Date.parse('2026-12-10T00:00:00Z');
-  const history = { prizes: [
-    { id: '20261205-42', status: 'pending', expires_at: '2027-01-04T00:00:00Z' },
-    { id: '20261101-42', status: 'pending', expires_at: '2026-12-01T00:00:00Z' },
-    { id: '20261206-42', status: 'used', expires_at: '2027-01-05T00:00:00Z' },
-    { id: '20261207-42', status: 'sent', expires_at: '2027-01-06T00:00:00Z' }
+function prizeHistory() {
+  return { spins: [], prizes: [
+    { id: '20261205-42', name: 'Summer sock', status: 'pending', won_at: '2026-12-05T02:00:00Z', expires_at: '2027-01-04T02:00:00Z' },
+    { id: '20261206-42', name: 'Thẻ chương 10 năm', status: 'pending', won_at: '2026-12-06T02:00:00Z', expires_at: '2027-01-05T02:00:00Z' },
+    { id: '20261101-42', name: 'Sticker', status: 'pending', won_at: '2026-11-01T02:00:00Z', expires_at: '2026-12-01T02:00:00Z' },
+    { id: '20261102-42', name: 'Bài Ngọ', status: 'sent', won_at: '2026-11-02T02:00:00Z', expires_at: '2026-12-02T02:00:00Z' },
+    { id: '20261220-42', name: 'Mũ Cruiser', status: 'pending', won_at: '2026-12-20T02:00:00Z', expires_at: '2027-01-19T02:00:00Z' }
   ] };
-  assert.equal(__test.claimablePrize(history, '20261205-42', now).id, '20261205-42');
-  assert.throws(() => __test.claimablePrize(history, '20261101-42', now), /hết hạn/);
-  assert.throws(() => __test.claimablePrize(history, '20261206-42', now), /đã được sử dụng/);
-  assert.throws(() => __test.claimablePrize(history, '20261207-42', now), /đã được gửi/);
-  assert.throws(() => __test.claimablePrize(history, '20261208-99', now), /Không tìm thấy/);
+}
+
+test('the next order takes every waiting, unexpired prize won before it', () => {
+  const order = { id: '1001', name: '#1001', created_at: '2026-12-10T05:00:00Z', total: 900000, cancelled: false };
+  const { history, attached } = __test.attachPrizesToOrder(prizeHistory(), order, 0);
+  assert.deepEqual(attached.map((p) => p.id), ['20261205-42', '20261206-42']);
+  const byId = Object.fromEntries(history.prizes.map((p) => [p.id, p]));
+  assert.equal(byId['20261205-42'].status, 'attached');
+  assert.equal(byId['20261205-42'].order.name, '#1001');
+  assert.equal(byId['20261101-42'].status, 'pending'); // expired before the order
+  assert.equal(byId['20261102-42'].status, 'sent'); // already sent
+  assert.equal(byId['20261220-42'].status, 'pending'); // won after the order
+  assert.equal(__test.giftNote(attached), '🎁 Gửi kèm quà vòng quay may mắn: Summer sock, Thẻ chương 10 năm');
 });
 
-test('prize product falls back to the current config for prizes won before products were set', () => {
-  const config = __test.buildConfig({ ...rawSettings(), lucky_wheel_prize_2_product: 'mu-cruiser' });
-  assert.equal(__test.prizeProductHandle({ key: 'p2' }, config), 'mu-cruiser');
-  assert.equal(__test.prizeProductHandle({ key: 'p2', product: 'old-hat' }, config), 'old-hat');
+test('a repeated webhook for the same order attaches nothing new; another order cannot take them', () => {
+  const order = { id: '1001', name: '#1001', created_at: '2026-12-10T05:00:00Z', total: 900000 };
+  const first = __test.attachPrizesToOrder(prizeHistory(), order, 0);
+  const again = __test.attachPrizesToOrder(first.history, order, 0);
+  assert.equal(again.attached.length, 0);
+  assert.equal(again.already.length, 2);
+  const other = __test.attachPrizesToOrder(first.history, { ...order, id: '1002', name: '#1002', created_at: '2026-12-11T05:00:00Z' }, 0);
+  assert.equal(other.attached.length, 0);
 });
 
-test('gift code: this customer only, once, buy 1 from the collection, the gift free until expiry', () => {
-  const code = __test.randomCode();
-  assert.match(code, /^LW[A-HJ-NP-Z2-9]{10}$/);
-  const input = __test.giftDiscountInput({
-    code,
-    customerId: '42',
-    productId: 'gid://shopify/Product/1',
-    collectionId: 'gid://shopify/Collection/9',
-    prize: { id: '20261205-42', name: 'Summer sock', expires_at: '2027-01-04T00:00:00.000Z' },
-    nowMs: Date.parse('2026-12-10T00:00:00Z')
-  });
-  assert.deepEqual(input.context, { customers: { add: ['gid://shopify/Customer/42'] } });
-  assert.equal(input.usageLimit, 1);
-  assert.equal(input.usesPerOrderLimit, 1);
-  assert.equal(input.appliesOncePerCustomer, true);
-  assert.equal(input.endsAt, '2027-01-04T00:00:00.000Z');
-  assert.deepEqual(input.customerBuys, { value: { quantity: '1' }, items: { collections: { add: ['gid://shopify/Collection/9'] } } });
-  assert.deepEqual(input.customerGets.value, { discountOnQuantity: { quantity: '1', effect: { percentage: 1 } } });
-  assert.deepEqual(input.customerGets.items, { products: { productsToAdd: ['gid://shopify/Product/1'] } });
+test('orders under the minimum or cancelled take no prizes', () => {
+  const order = { id: '1001', name: '#1001', created_at: '2026-12-10T05:00:00Z', total: 300000 };
+  assert.equal(__test.attachPrizesToOrder(prizeHistory(), order, 500000).attached.length, 0);
+  assert.equal(__test.attachPrizesToOrder(prizeHistory(), { ...order, total: 900000, cancelled: true }, 0).attached.length, 0);
+});
+
+test('detaching a prize (cancelled order) sends it back to waiting; un-sending keeps its order', () => {
+  const prize = { status: 'attached', order: { id: '1001', name: '#1001' } };
+  __test.applyStatus(prize, 'sent');
+  assert.equal(prize.status, 'sent');
+  __test.applyStatus(prize, 'attached');
+  assert.equal(prize.status, 'attached');
+  assert.equal(prize.order.name, '#1001');
+  __test.applyStatus(prize, 'pending');
+  assert.equal(prize.status, 'pending');
+  assert.equal(prize.order, undefined);
+  __test.applyStatus(prize, 'attached'); // no order -> stays waiting
+  assert.equal(prize.status, 'pending');
+});
+
+test('webhook signature must match the app secret', () => {
+  const body = Buffer.from('{"id":1}');
+  const good = crypto.createHmac('sha256', 's3cret').update(body).digest('base64');
+  assert.equal(__test.verifyWebhookHmac(body, good, 's3cret'), true);
+  assert.equal(__test.verifyWebhookHmac(body, good, 'other'), false);
+  assert.equal(__test.verifyWebhookHmac(Buffer.from('{"id":2}'), good, 's3cret'), false);
+  assert.equal(__test.verifyWebhookHmac(body, '', 's3cret'), false);
 });

@@ -153,16 +153,6 @@ module.exports = async (req, res) => {
       }
     };
 
-    // Discount codes from the cart (e.g. lucky-wheel gift codes). Shopify itself
-    // checks each code for this customer, so only the codes are forwarded, never
-    // an amount. Only accepted for signed App Proxy requests (verified customer).
-    const discountCodes = proxyAuth.valid
-      ? normalizeDiscountCodes(body.discount_codes)
-      : [];
-    if (discountCodes.length) {
-      draftOrderInput.discountCodes = discountCodes;
-    }
-
     console.log('Creating authoritative draft order', {
       mode: proxyAuth.valid ? 'app_proxy' : 'legacy_server_verified',
       currency,
@@ -203,17 +193,6 @@ module.exports = async (req, res) => {
     });
   }
 };
-
-function normalizeDiscountCodes(codes) {
-  if (!Array.isArray(codes)) return [];
-  return [...new Set(
-    codes
-      .map(code => String(code || '').trim())
-      .map(code => code.toUpperCase())
-      // Only lucky-wheel gift codes; other promo codes keep their current behaviour
-      .filter(code => /^LW[A-Z0-9]{10}$/.test(code))
-  )].slice(0, 5);
-}
 
 function validateRequestedItems(items) {
   if (!Array.isArray(items) || items.length === 0) {
