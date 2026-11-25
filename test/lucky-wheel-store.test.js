@@ -337,7 +337,7 @@ test('chapter cards: at most one per due drop, spread over the day, 50 per day b
   assert.equal(state.days[day].cardTimes.length, 50);
 });
 
-test('per account: at most 1 prize for the whole campaign; chapter cards can repeat', () => {
+test('per account: 1 prize + 1 chapter card at most', () => {
   const state = __test.emptyState();
   const always = () => 0; // every chance succeeds
   const types = [];
@@ -345,7 +345,8 @@ test('per account: at most 1 prize for the whole campaign; chapter cards can rep
     const at = __test.localDayStart('2026-12-0' + d) + 23.9 * 3600000;
     types.push(__test.decideSpin(state, '42', at, config, always).result.type);
   }
-  assert.deepEqual(types, ['win', 'card', 'card', 'card', 'card']);
+  assert.deepEqual(types, ['win', 'card', 'lose', 'lose', 'lose']);
+  assert.equal(state.cardCounts['42'], 1);
 });
 
 test('prizes keep until the configured expiry date (end of that day, Vietnam time)', () => {
@@ -366,6 +367,20 @@ test('a prize with stock 0 is not on the wheel; chapter card keeps its product',
 });
 
 /* ---------------- Scale: compact state under the 128 KB metafield cap ---------------- */
+
+test('spin counters: total and per day, kept days seed older states', () => {
+  const state = __test.emptyState();
+  const cfg = { ...config, winsPerDay: 0, cardsPerDay: 0 };
+  const at = (d) => __test.localDayStart('2026-12-0' + d) + 10 * 3600000;
+  for (let i = 0; i < 3; i += 1) __test.decideSpin(state, 'a' + i, at(5), cfg, () => 0.5);
+  for (let i = 0; i < 2; i += 1) __test.decideSpin(state, 'b' + i, at(6), cfg, () => 0.5);
+  __test.decideSpin(state, 'b0', at(6) + 1000, cfg, () => 0.5); // already spun: not counted
+  assert.equal(state.stats.total, 5);
+  assert.deepEqual(state.stats.byDay, { '2026-12-05': 3, '2026-12-06': 2 });
+
+  const old = __test.normalizeState({ days: { '2026-12-06': { spins: { x: 'l', y: 'c' } } }, winners: [] });
+  assert.deepEqual(old.stats, { total: 2, byDay: { '2026-12-06': 2 } });
+});
 
 test('spins are stored compactly and expand back to full results', () => {
   const state = __test.emptyState();
@@ -410,4 +425,37 @@ test('near the cap, older days are trimmed first; legacy full-object spins still
   const again = __test.decideSpin(state, '42', __test.localDayStart(day2) + 7200000, config, () => 0);
   assert.equal(again.alreadySpun, true);
   assert.equal(again.result.type, 'card');
+});
+
+test('per account: 2 chapter cards first means no prize afterwards', () => {
+  const always = () => 0;
+  const at = (d) => __test.localDayStart('2026-12-0' + d) + 23.9 * 3600000;
+  const state = __test.emptyState();
+  const noPrizes = { ...config, winsPerDay: 0 };
+  assert.equal(__test.decideSpin(state, '5', at(5), noPrizes, always).result.type, 'card');
+  assert.equal(__test.decideSpin(state, '5', at(6), noPrizes, always).result.type, 'card');
+  assert.equal(__test.decideSpin(state, '5', at(7), config, always).result.type, 'lose');
+});
+
+test('reward cap per account is configurable (0 = no limit) and counts cards given before', () => {
+  const always = () => 0;
+  const at = (d) => __test.localDayStart('2026-12-0' + d) + 23.9 * 3600000;
+  const cfg0 = { ...__test.buildConfig({ ...rawSettings(), lucky_wheel_rewards_per_account: 0 }), winsPerDay: 0 };
+  const s0 = __test.emptyState();
+  assert.deepEqual([5, 6, 7].map((d) => __test.decideSpin(s0, '9', at(d), cfg0, always).result.type), ['card', 'card', 'card']);
+
+  // a state upgraded with counts taken from the ledger: this customer already has 3 cards
+  const s1 = { ...__test.emptyState(), cardCounts: { '9': 3 } };
+  const cfg = { ...config, winsPerDay: 0 };
+  assert.equal(__test.decideSpin(s1, '9', at(5), cfg, always).result.type, 'lose');
+  assert.equal(__test.decideSpin(s1, '10', at(5), cfg, always).result.type, 'card');
+});
+
+test('deleting a chapter card spin gives the card back to the customer', () => {
+  const cfg = { ...config, winsPerDay: 0 };
+  const state = __test.emptyState();
+  const { result } = __test.decideSpin(state, '9', __test.localDayStart('2026-12-05') + 23.9 * 3600000, cfg, () => 0);
+  assert.equal(state.cardCounts['9'], 1);
+  __test.removeFromState(state, result.id, '9');
+  assert.equal(state.cardCounts['9'], undefined);
 });
