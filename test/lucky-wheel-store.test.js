@@ -128,8 +128,8 @@ test('chapter cards do not use up the daily win cap or prize stock', () => {
 });
 
 test('ledger: one key per local day, entries added once', () => {
-  assert.equal(__test.ledgerKey(config, '2026-12-05'), 'ledger_20261201_20261205');
-  assert.equal(__test.ledgerKey(config, '20261205-42'), 'ledger_20261201_20261205');
+  assert.equal(__test.ledgerKey(config, '2026-12-05'), 'ledger_default_20261205');
+  assert.equal(__test.ledgerKey(config, '20261205-42'), 'ledger_default_20261205');
   const result = { id: '20261205-42', type: 'card', key: 'card', name: 'Thẻ chương 10 năm', at: Date.parse('2026-12-05T10:00:00Z'), day: '2026-12-05' };
   let list = __test.addLedgerEntry(null, result, '42');
   list = __test.addLedgerEntry(list, result, '42');
@@ -458,4 +458,9 @@ test('deleting a chapter card spin gives the card back to the customer', () => {
   assert.equal(state.cardCounts['9'], 1);
   __test.removeFromState(state, result.id, '9');
   assert.equal(state.cardCounts['9'], undefined);
+});
+
+test('setting or changing dates never switches the campaign; only an explicit id does', () => {
+  assert.equal(__test.buildConfig({ ...rawSettings(), lucky_wheel_start: '2026-11-24 00:00' }).campaignId, 'default');
+  assert.equal(__test.buildConfig({ ...rawSettings(), lucky_wheel_campaign_id: 'Tet-2027' }).campaignId, 'tet-2027');
 });
